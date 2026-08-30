@@ -36,14 +36,14 @@ def _encrypt(plaintext: bytes, password: str) -> bytes:
 def test_roundtrip_with_explicit_password() -> None:
     payload = b"noi dung model gia lap" * 100
     blob = _encrypt(payload, "mat-khau-test")
-    assert decrypt_bytes(blob, password="mat-khau-test") == payload
+    assert decrypt_bytes(blob, password="mat-khau-test") == payload  # pragma: allowlist secret
 
 
 def test_wrong_password_is_rejected() -> None:
     """GCM có tag xác thực nên sai mật khẩu bị phát hiện, không ra rác im lặng."""
     blob = _encrypt(b"x" * 64, "dung")
     with pytest.raises(DecryptionError, match="sai mật khẩu"):
-        decrypt_bytes(blob, password="sai")
+        decrypt_bytes(blob, password="sai")  # pragma: allowlist secret
 
 
 def test_tampered_ciphertext_is_rejected() -> None:
@@ -51,7 +51,7 @@ def test_tampered_ciphertext_is_rejected() -> None:
     blob = bytearray(_encrypt(b"y" * 64, "pw"))
     blob[-1] ^= 0xFF
     with pytest.raises(DecryptionError, match="đã bị sửa đổi"):
-        decrypt_bytes(bytes(blob), password="pw")
+        decrypt_bytes(bytes(blob), password="pw")  # pragma: allowlist secret
 
 
 @pytest.mark.parametrize("size", [0, 1, HEADER_LEN - 1, HEADER_LEN])
@@ -75,7 +75,7 @@ def test_explicit_password_overrides_env(monkeypatch: pytest.MonkeyPatch) -> Non
     payload = b"w" * 32
     blob = _encrypt(payload, "tuong-minh")
     monkeypatch.setenv("CRANEOPS_MODEL_PASSWORD", "sai-be-bet")
-    assert decrypt_bytes(blob, password="tuong-minh") == payload
+    assert decrypt_bytes(blob, password="tuong-minh") == payload  # pragma: allowlist secret
 
 
 @pytest.mark.parametrize("value", ["", None])
@@ -122,9 +122,9 @@ def test_decrypts_a_real_model_into_valid_onnx() -> None:
 
 def test_encrypt_decrypt_round_trip() -> None:
     payload = b"noi dung model gia lap" * 500
-    blob = cipher.encrypt_bytes(payload, password="pw")
+    blob = cipher.encrypt_bytes(payload, password="pw")  # pragma: allowlist secret
 
-    assert cipher.decrypt_bytes(blob, password="pw") == payload
+    assert cipher.decrypt_bytes(blob, password="pw") == payload  # pragma: allowlist secret
 
 
 def test_encrypt_uses_fresh_salt_and_iv_each_time() -> None:
@@ -134,30 +134,31 @@ def test_encrypt_uses_fresh_salt_and_iv_each_time() -> None:
     hai bản rõ mà không cần khoá.
     """
     payload = b"x" * 1000
-    a = cipher.encrypt_bytes(payload, password="pw")
-    b = cipher.encrypt_bytes(payload, password="pw")
+    a = cipher.encrypt_bytes(payload, password="pw")  # pragma: allowlist secret
+    b = cipher.encrypt_bytes(payload, password="pw")  # pragma: allowlist secret
 
     assert a != b
     assert a[:28] != b[:28], "salt+iv phải ngẫu nhiên mỗi lần"
 
 
 def test_encrypted_blob_detects_tampering() -> None:
-    blob = bytearray(cipher.encrypt_bytes(b"noi dung that" * 100, password="pw"))
+    raw = cipher.encrypt_bytes(b"noi dung that" * 100, password="pw")  # pragma: allowlist secret
+    blob = bytearray(raw)
     blob[-1] ^= 0xFF  # lật một bit trong ciphertext
 
     with pytest.raises(cipher.DecryptionError):
-        cipher.decrypt_bytes(bytes(blob), password="pw")
+        cipher.decrypt_bytes(bytes(blob), password="pw")  # pragma: allowlist secret
 
 
 def test_encrypt_rejected_by_wrong_password() -> None:
-    blob = cipher.encrypt_bytes(b"bi mat" * 200, password="dung")
+    blob = cipher.encrypt_bytes(b"bi mat" * 200, password="dung")  # pragma: allowlist secret
 
     with pytest.raises(cipher.DecryptionError):
-        cipher.decrypt_bytes(blob, password="sai")
+        cipher.decrypt_bytes(blob, password="sai")  # pragma: allowlist secret
 
 
 def test_khong_ma_hoa_noi_dung_rong() -> None:
     """Nếu cho phép, hàm này tạo blob 44 byte mà ``decrypt_bytes`` từ chối là "quá ngắn"
     — tức mã hoá xong không giải mã lại được."""
     with pytest.raises(ValueError, match="rỗng"):
-        cipher.encrypt_bytes(b"", password="pw")
+        cipher.encrypt_bytes(b"", password="pw")  # pragma: allowlist secret

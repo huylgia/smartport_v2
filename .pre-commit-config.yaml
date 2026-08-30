@@ -12,19 +12,36 @@ repos:
         args: ["--maxkb=512"]
       - id: detect-private-key
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+  # ruff cũng chạy trong venv dự án, cùng lý do như mypy bên dưới: hook ghim v0.6.9 còn
+  # dự án dùng 0.16.x, và hai bản không đồng ý với nhau (v0.6.9 vẫn bật UP038, bản mới đã
+  # bỏ). Kết quả: `make check` xanh còn commit thì bị chặn — cùng một câu hỏi, hai đáp án.
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
+        name: ruff (venv dự án)
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
+        name: ruff-format (venv dự án)
+        entry: uv run ruff format
+        language: system
+        types: [python]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+  # mypy chạy trong venv CỦA DỰ ÁN, không phải môi trường cô lập của pre-commit.
+  #
+  # Bản trước dùng mirrors-mypy với `additional_dependencies: [pydantic, types-pyyaml]`.
+  # Môi trường đó thiếu cryptography, numpy, pytest… nên mypy suy ra `Any` ở khắp nơi và
+  # báo 13 lỗi mà `make check` không hề thấy — hai kết quả khác nhau cho cùng một câu hỏi.
+  # `language: system` + `uv run` cho đúng một nguồn sự thật.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies: [pydantic>=2.7, types-pyyaml]
-        exclude: ^(ds_app/nvdsinfer_custom/|build/|tests/golden/data/)
+        name: mypy (venv dự án)
+        entry: uv run mypy .
+        language: system
+        types: [python]
+        pass_filenames: false
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
