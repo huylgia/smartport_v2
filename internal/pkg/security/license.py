@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import time
 from dataclasses import dataclass
 
@@ -60,11 +59,12 @@ __all__ = [
 PREFIX = "CO2"
 SCHEMA_VERSION = 2
 
-ENV_PUBLIC_KEY = "CRANEOPS_LICENSE_PUBLIC_KEY"
-"""Khoá công khai dạng base64url (32 byte thô). Ghi đè khoá nhúng — dùng cho test và cho
-môi trường staging có bộ khoá riêng."""
-
-EMBEDDED_PUBLIC_KEY = "N6d0Snsp432Ply19AB4eQNl2L8dEtGbtS2SOlv4a_BY"
+# pragma: allowlist nextline secret
+# ↑ detect-secrets thấy chuỗi base64 entropy cao và cảnh báo. Đây là dương tính giả
+# và phải giữ nguyên trong mã nguồn: khoá CÔNG KHAI chỉ xác minh được chữ ký, không
+# ký được. Push nó lên repo là vô hại — mọi bản build đều cần nó. Thứ phải giữ bí mật
+# là khoá RIÊNG, và nó không bao giờ vào repo (xem tools/issue_license.py).
+EMBEDDED_PUBLIC_KEY = "2Yq-exB1buCCk5_APRQvDYvi9m-3_YM_kw_ht3NrXsY"  # pragma: allowlist secret
 """Khoá công khai của bên cấp phép, base64url 32 byte.
 
 Chỉ dùng để **xác minh** — không cấp được giấy phép từ nó. Khoá riêng tương ứng nằm ngoài
@@ -135,12 +135,27 @@ def _b64d(text: str) -> bytes:
 
 
 def _public_key() -> Ed25519PublicKey:
-    raw_b64 = os.environ.get(ENV_PUBLIC_KEY) or EMBEDDED_PUBLIC_KEY
+    """Khoá công khai để xác minh — **chỉ** lấy từ hằng số nhúng trong mã nguồn.
+
+    ⚠️ **Không thêm biến môi trường ghi đè khoá này.** Từng có một
+    (``CRANEOPS_LICENSE_PUBLIC_KEY``, "cho test và staging") và nó vô hiệu hoá toàn bộ cơ
+    chế cấp phép: ai đặt được biến môi trường chỉ cần tự sinh một cặp khoá, đặt phần công
+    khai vào đó, rồi tự ký giấy phép cho bất kỳ máy nào. Đã kiểm chứng — nó chấp nhận.
+
+    Khác biệt cốt lõi: người vận hành **được phép** sửa file cấu hình và biến môi trường,
+    đó là công việc của họ. Còn sửa hằng số này thì phải sửa mã nguồn rồi dựng lại image —
+    và ai làm được tới mức đó thì đã có quyền thực thi mã tuỳ ý, lúc đó cấp phép không còn
+    là hàng rào nữa. Ranh giới tin cậy nằm đúng ở chỗ đó.
+
+    Test ghi đè bằng ``monkeypatch.setattr(license, "EMBEDDED_PUBLIC_KEY", …)`` — cách đó
+    cần chạy mã trong tiến trình, không phải chỉ đặt một biến môi trường.
+    """
+    raw_b64 = EMBEDDED_PUBLIC_KEY
     if not raw_b64:
         raise LicenseError(
             "chưa cấu hình khoá công khai để xác minh giấy phép. Sinh cặp khoá bằng "
-            "`python -m tools.issue_license --new-keypair`, đặt phần công khai vào "
-            f"EMBEDDED_PUBLIC_KEY hoặc biến môi trường {ENV_PUBLIC_KEY}."
+            "`python -m tools.issue_license --new-keypair` rồi đặt phần công khai vào "
+            "EMBEDDED_PUBLIC_KEY."
         )
     try:
         return Ed25519PublicKey.from_public_bytes(_b64d(raw_b64))

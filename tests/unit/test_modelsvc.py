@@ -38,7 +38,7 @@ def _fake_engine(repo: Path, spec: ModelSpec, *, stamp: bool = True) -> Path:
 def valid_token(monkeypatch: pytest.MonkeyPatch) -> str:
     """Giấy phép hợp lệ cho một thiết bị giả lập."""
     key = Ed25519PrivateKey.generate()
-    monkeypatch.setenv(lic.ENV_PUBLIC_KEY, lic.public_key_b64(key))
+    monkeypatch.setattr(lic, "EMBEDDED_PUBLIC_KEY", lic.public_key_b64(key))
     monkeypatch.setattr(modelsvc, "collect", lambda: DEVICE, raising=False)
     monkeypatch.setattr("internal.pkg.security.license.collect", lambda: DEVICE)
     return lic.issue(DEVICE.digest, key, note="test")

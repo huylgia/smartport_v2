@@ -26,9 +26,14 @@ DEVICE_B = DeviceFingerprint(
 
 @pytest.fixture
 def vendor_key(monkeypatch: pytest.MonkeyPatch) -> Ed25519PrivateKey:
-    """Cặp khoá của bên cấp phép. Phần công khai nạp qua env như ở production."""
+    """Cặp khoá của bên cấp phép.
+
+    Ghi đè hằng số nhúng bằng ``setattr`` chứ không phải biến môi trường — xem
+    ``license._public_key``: một biến môi trường ghi đè được khoá này sẽ vô hiệu hoá toàn
+    bộ cơ chế cấp phép.
+    """
     key = Ed25519PrivateKey.generate()
-    monkeypatch.setenv(lic.ENV_PUBLIC_KEY, lic.public_key_b64(key))
+    monkeypatch.setattr(lic, "EMBEDDED_PUBLIC_KEY", lic.public_key_b64(key))
     return key
 
 
@@ -96,21 +101,18 @@ def test_license_for_another_device_is_rejected(vendor_key: Ed25519PrivateKey) -
         lic.validate(token, fingerprint=DEVICE_B)
 
 
-def test_customer_cannot_mint_a_license_with_a_different_key() -> None:
+def test_customer_cannot_mint_a_license_with_a_different_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Điểm cốt lõi: có phần mềm mà không có khoá riêng thì không tự cấp phép được."""
     vendor = Ed25519PrivateKey.generate()
     attacker = Ed25519PrivateKey.generate()
 
     forged = lic.issue(DEVICE_B.digest, attacker, note="tu-cap")
 
-    import os
-
-    os.environ[lic.ENV_PUBLIC_KEY] = lic.public_key_b64(vendor)
-    try:
-        with pytest.raises(lic.LicenseError, match="chữ ký không hợp lệ"):
-            lic.validate(forged, fingerprint=DEVICE_B)
-    finally:
-        del os.environ[lic.ENV_PUBLIC_KEY]
+    monkeypatch.setattr(lic, "EMBEDDED_PUBLIC_KEY", lic.public_key_b64(vendor))
+    with pytest.raises(lic.LicenseError, match="chữ ký không hợp lệ"):
+        lic.validate(forged, fingerprint=DEVICE_B)
 
 
 def test_tampering_with_payload_breaks_the_signature(vendor_key: Ed25519PrivateKey) -> None:
@@ -184,7 +186,6 @@ def test_weak_device_accepted_when_explicitly_allowed(vendor_key: Ed25519Private
 
 def test_missing_public_key_rejects_everything(monkeypatch: pytest.MonkeyPatch) -> None:
     """Chưa cấu hình khoá công khai phải là TỪ CHỐI, không phải cho qua."""
-    monkeypatch.delenv(lic.ENV_PUBLIC_KEY, raising=False)
     monkeypatch.setattr(lic, "EMBEDDED_PUBLIC_KEY", "")
     key = Ed25519PrivateKey.generate()
     token = lic.issue(DEVICE_A.digest, key)
@@ -211,3 +212,31 @@ def test_note_cannot_be_edited_after_issue(vendor_key: Ed25519PrivateKey) -> Non
     )
     with pytest.raises(lic.LicenseError, match="chữ ký"):
         lic.validate(f"{prefix}.{tampered}.{sig}", fingerprint=DEVICE_A)
+
+
+def test_no_environment_variable_can_override_the_embedded_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Không biến môi trường nào được phép thay khoá xác minh.
+
+    Từng có ``CRANEOPS_LICENSE_PUBLIC_KEY`` với lý do "cho test và staging". Hậu quả: ai
+    đặt được biến môi trường chỉ cần tự sinh cặp khoá, đặt phần công khai vào đó, rồi tự
+    ký giấy phép cho bất kỳ máy nào — cơ chế cấp phép thành vô nghĩa.
+
+    Test này quét **mọi** biến môi trường có tên gợi ý, để ai thêm lại một đường ghi đè sẽ
+    làm đổ test thay vì âm thầm mở lại cửa.
+    """
+    vendor = Ed25519PrivateKey.generate()
+    attacker = Ed25519PrivateKey.generate()
+    monkeypatch.setattr(lic, "EMBEDDED_PUBLIC_KEY", lic.public_key_b64(vendor))
+
+    forged = lic.issue(DEVICE_B.digest, attacker, note="tu-cap")
+    for name in (
+        "CRANEOPS_LICENSE_PUBLIC_KEY",
+        "CRANEOPS_PUBLIC_KEY",
+        "LICENSE_PUBLIC_KEY",
+    ):
+        monkeypatch.setenv(name, lic.public_key_b64(attacker))
+
+    with pytest.raises(lic.LicenseError, match="chữ ký không hợp lệ"):
+        lic.validate(forged, fingerprint=DEVICE_B)
