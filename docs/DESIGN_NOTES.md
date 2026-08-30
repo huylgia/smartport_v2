@@ -1193,3 +1193,77 @@ VRAM ở §3 của `HARDWARE_BUDGET.md` còn dư nhiều lần, nên đây là �
 
 `fp16=False` được ghi ngay tại chỗ khai báo model trong `tools/export_models.py`, kèm trỏ về
 mục này — đổi cờ đó mà không đọc mục này là cách dễ nhất để tái tạo lại lỗi.
+
+---
+
+## DN-014 · Nhánh ghi hình tách ở **tầng bitstream**, và cái giá của nó ở tầng Docker
+
+**Trạng thái:** ✅ **ĐÃ ĐO trên camera thật** · `enc=0` đúng như thiết kế
+
+Điều kiện sống còn trên RTX 3060: card GeForce chỉ có **1 NVENC** và bị driver giới hạn số
+phiên encode đồng thời. Ghi hình 10 camera bằng cách decode rồi encode lại là bất khả thi.
+Nên nhánh ghi phải tách **trước khi decode** và mux thẳng bitstream gốc vào MP4.
+
+Đo trên camera 1 của GC03, 40 giây liên tục:
+
+| | Kết quả |
+|---|---|
+| NVENC | **0 %** — suốt cả lần chạy |
+| NVDEC | 1–2 % cho một camera |
+| Segment | 5 file, ~3,8 MB mỗi 10 s (≈3 Mbps) |
+| Đọc lại segment | ✅ decode tới `Got EOS`, mỗi file tự đứng được |
+| Luồng nguồn | H.265, VPS+SPS+PPS đủ, GOP ≈ 1,7 s |
+
+### Ba cái bẫy, cả ba đều mất thời gian mới tìm ra
+
+**1. Không tự dựng `tee` sau `h265parse`.** Hai đích cần `stream-format` **loại trừ nhau**:
+
+| Đích | Cần |
+|---|---|
+| `nvv4l2decoder` | `byte-stream` |
+| `mp4mux` | `hvc1` / `hev1` |
+
+Một `h265parse` chỉ thương lượng được một, nhánh còn lại chết với `not-negotiated (-4)` —
+thông báo không hề nhắc tới caps. Cách đúng: tee **ngay sau `rtph265depay`**, rồi **mỗi
+nhánh một `h265parse`** riêng. Tốt hơn nữa là dùng `nvurisrcbin`, vốn đã có sẵn
+`tee_rtsp_pre_decode` bên trong — ghép vào đó thay vì tự dựng.
+
+**2. `splitmuxsink` phải cấu hình qua `muxer-factory`, KHÔNG phải `muxer`.** Đặt
+`muxer=mp4mux` cho ra fragment **0 byte** ("moov atom not found") mà không báo lỗi nào.
+
+**3. ⚠️ GPU phải cấp bằng `count: all`, KHÔNG phải `device_ids`.** Đây là cái đắt nhất.
+
+Pin GPU bằng `device_ids: ["0"]` (hoặc `--gpus device=0`) cấp CUDA compute device nhưng
+**không** cấp node V4L2 của NVDEC (`/dev/nvidia-caps/…`). Hậu quả: `nvv4l2decoder` mở được,
+pipeline vào PLAYING, RTSP nhận đủ gói — rồi **đứng vĩnh viễn ở `PREROLLING`**, không một
+khung nào chảy, và **không có thông báo lỗi nào**.
+
+Kiểm nhanh, chạy được ở bất kỳ đâu:
+
+```bash
+gst-launch-1.0 -e filesrc location=<clip>.mp4 ! qtdemux ! h265parse ! nvv4l2decoder ! fakesink
+# --gpus device=0 → treo ở PREROLLING
+# --gpus all      → "Got EOS", "Execution ended"
+```
+
+### Xung đột: `count: all` làm ĐỔI vân tay cấp phép
+
+`_gpu_uuids()` lấy UUID của **mọi GPU tiến trình nhìn thấy**, đã sắp xếp. Nên tập GPU được
+cấp quyết định digest — mà NVDEC lại đòi cấp hết. Đo trên máy dev 2 GPU:
+
+| Cách cấp | digest |
+|---|---|
+| `--gpus device=0` | `de4a5ace…` |
+| `--gpus all` | `e7c91d40…` |
+
+⚠️ Nghĩa là **Triton (pin `device_ids`) và `ds_app` (buộc `count: all`) sẽ cần hai giấy phép
+khác nhau** nếu máy có nhiều hơn một GPU.
+
+Máy đích chỉ có **một** RTX 3060 nên `all` và `device=0` trỏ cùng một card ⇒ digest trùng,
+không có vấn đề tại cảng. Nhưng trên máy dev/staging nhiều GPU thì đây là bẫy chắc chắn
+sập. Khi làm Phase 3, phải chốt một trong hai:
+
+* dùng `count: all` cho **cả hai** service để chúng cùng một vân tay, hoặc
+* bỏ `gpu` khỏi vân tay và chỉ dựa vào `dmi_uuid` + `board_serial`.
+
+Chưa chốt — cần quyết định trước khi `ds_app` chạy cùng Triton trên một máy.
