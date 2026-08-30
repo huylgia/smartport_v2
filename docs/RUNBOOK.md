@@ -100,8 +100,22 @@ python -m tools.issue_license --new-keypair --out-private ~/craneops-license.key
 ```
 
 In ra khoá công khai. Dán vào `EMBEDDED_PUBLIC_KEY` trong
-`internal/pkg/security/license.py`, rồi build lại image. Khoá riêng cất offline; mất nó là
-không cấp phép cho máy mới được nữa.
+`internal/pkg/security/license.py`, rồi build lại image.
+
+Ba điều về khoá này:
+
+* **Khoá công khai nằm trong mã nguồn là đúng, và commit nó lên repo là an toàn.** Nó chỉ
+  *xác minh* được chữ ký, không *ký* được — ai lấy được cũng không tự cấp phép cho mình.
+  Mọi bản build đều cần nó. (`detect-secrets` có cảnh báo vì thấy chuỗi base64 entropy cao;
+  đó là dương tính giả, đã đánh dấu `# pragma: allowlist secret` kèm giải thích tại chỗ.)
+* **Không có cách nào ghi đè nó bằng biến môi trường, và đừng thêm lại.** Lý do đầy đủ:
+  [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-005.
+* ⚠️ **Đổi khoá này làm MỌI giấy phép cũ hết hiệu lực.** Chúng sẽ bị từ chối với *"chữ ký
+  không hợp lệ"*. Nếu đã có máy đang chạy, cấp lại giấy phép cho chúng **trước** khi triển
+  khai image mới.
+
+Khoá **riêng** cất offline, ngoài repo. Mất nó là không cấp phép cho máy mới được nữa; lộ
+nó là ai cũng cấp được.
 
 ### Bước 2 — **trên máy đích**, lấy vân tay
 

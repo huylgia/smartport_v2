@@ -51,8 +51,9 @@ Nguồn sự thật là `common/message.py` (pydantic v2). Tài liệu này gi�
 ### `craneops.perception.*`
 
 `segment_hint` trỏ tới file segment chứa khung này — đó là cách `evidenced` biết cắt clip
-ở đâu, thay cho việc `glob` một ring-buffer JPEG rồi lọc theo tên file
-(`service.py:1650-1766`).
+ở đâu. Producer biết chính xác segment nào đang ghi lúc nó xử lý khung này, nên nó nói ra;
+tìm lại bằng cách quét thư mục theo dấu thời gian là suy đoán, và suy đoán sai ở ranh giới
+giữa hai segment.
 
 `fps` là fps của **nguồn** (30 với smartport), không phải fps sau decimate. `frame_id` là
 chỉ số khung **gốc**, đã khôi phục qua `restore_frame_id`. Dùng `frame_ts` có sẵn, đừng tự
@@ -71,9 +72,9 @@ thầm không bao giờ được điền, và không có gì báo lỗi.
 
 ### `craneops.manifest`
 
-`containers` rỗng **không** có nghĩa là lỗi — nghĩa là chưa có tàu tại bến. Xử lý tình
-huống này bằng `HARD_KILL_SIGNAL` → `os.system("sudo reboot")` (`service.py:148-151`,
-`:243-245`). v2 chỉ chuyển sang chế độ không-đối-chiếu (combinator `fuzzy_dedup`) và chờ.
+`containers` rỗng **không** phải lỗi — nghĩa là chưa có tàu tại bến, một trạng thái vận
+hành bình thường xảy ra hàng ngày. Hệ chuyển sang chế độ không-đối-chiếu (combinator
+`fuzzy_dedup`) và chờ; không dừng, không báo động, và tuyệt đối không khởi động lại máy.
 
 ### `craneops.events`
 
@@ -86,7 +87,7 @@ thích ngược, không rò rỉ vào trong. Tối đa 2 slot (twin-lift 20 ft).
 ### `craneops.control`
 
 Thay `BaseCamera.PAUSE_HANDLE_FRAME_SIGNAL` — một `threading.Event` cấp class
-(`camera/base.py:37`) vốn chỉ có tác dụng trong một process.
+vốn chỉ có tác dụng trong một process.
 
 ---
 

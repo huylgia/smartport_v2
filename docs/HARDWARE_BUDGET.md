@@ -46,9 +46,9 @@ Spike A/B/C **bắt buộc chạy trên máy đích**.
 
 ### 2.1 Ba điều chỉnh so với giả định ban đầu
 
-**(a) 10 camera, không phải 11.** `service.py:30` liệt kê `CCODE_CAM_IDS = [1,4,6,7,8,11]`,
-nhưng GC03 không có camera 11 — danh sách ID là **hợp của nhiều cẩu**, không phải của một cẩu.
-Ở v2, vai trò nằm trong config từng cẩu, nên chuyện này tự biến mất.
+**(a) 10 camera, không phải 11.** Con số 11 đến từ một danh sách ID cứng gộp **nhiều cẩu**
+lại; GC03 thực tế không có camera 11. Đây là lý do vai trò camera phải nằm trong config
+**của từng cẩu** thay vì một bảng dùng chung.
 
 **(b) Camera 2 không có vai trò xử lý.** Nó chỉ nằm trong `SHORT_VIDEO_CAM_IDS`;
 `CommonCamera.handle_frame` chỉ gọi `super()` — tức là **không làm gì**
@@ -59,17 +59,18 @@ JPEG mỗi 5 giây. Ở v2 nó là **evidence-only: chỉ ghi passthrough, khôn
 Đây là điều chỉnh quan trọng nhất. Cả 10 camera đều phát **2688×1520 @ 30 fps** giống hệt
 nhau. Hai trường đó là *đích xử lý*:
 
-* `resolution` → `videoscale` về `RESOLUTION[...]` (`utils/__init__.py:76-83`:
+* `resolution` → `videoscale` về `RESOLUTION[...]` (
   `720p = 1280×720`, `4MP = 2688×1520`) — tức camera khai `720p` đang bị **downscale
   2688×1520 → 1280×720**, còn camera khai `4MP` giữ nguyên.
-* `fps` → `videorate` cap về 10 (`stream/opencv.py:203-205`).
+* `fps` → `videorate` cap về 10.
 
 Cả hai đều đặt **sau** `nvh265dec`, nên nếu để vậy thì **vẫn phải decode đủ 30 fps của cả 10 camera** rồi
 mới vứt bớt. Đây là lãng phí lớn nhất trong pipeline hiện tại.
 
-*(Lưu ý: trường `fps` này rất dễ bị bỏ qua khi đọc config —
-`data_utils.py:633-637`. Vì giá trị khai báo cũng là 10 nên bug chưa gây hậu quả, nhưng
-nó có nghĩa là **không cẩu nào từng đổi được fps qua config**.)*
+*(⚠️ Trường `fps` trong config camera rất dễ bị đọc sai thành hằng số cứng — một lỗi đã
+xảy ra và không ai phát hiện suốt thời gian dài, vì giá trị khai báo tình cờ trùng mặc
+định. Hệ quả: không cẩu nào đổi được fps qua config. Khi hiện thực Phase 3, hãy có test
+khẳng định giá trị trong YAML thực sự tới được decoder.)*
 
 ### 2.2 ⛔ `drop-frame-interval` KHÔNG giảm tải NVDEC — đã chứng minh
 
@@ -223,10 +224,10 @@ là giữ mọi khung. (Không phải `N+1` — `internal/pkg/timebase.py` đã 
 
 | Vai trò | Camera GC03 | Chu kỳ cần | fps mục tiêu | `drop_frame_interval` @30 | fps thực ra |
 |---|---|---|---:|---:|---:|
-| ccode | 1, 4, 6, 7, 8 | `0.2` (`ccode_camera/main.py:43`) | 5 | **6** | 5,00 |
-| crane | 10 | `0.3` (`crane_camera/main.py:16`) | 3,3 | **9** | 3,33 |
-| tcode | 3, 5 | `0.5` (`tcode_camera/main.py:22`) | 2 | **15** | 2,00 |
-| bottom | 9 | `1.0` (`bottom_camera.py:102`) | — | **không decode** | — |
+| ccode | 1, 4, 6, 7, 8 | `0.2` s | 5 | **6** | 5,00 |
+| crane | 10 | `0.3` s | 3,3 | **9** | 3,33 |
+| tcode | 3, 5 | `0.5` s | 2 | **15** | 2,00 |
+| bottom | 9 | `1.0` s | — | **không decode** | — |
 | evidence-only | 2 | `0.001` (mặc định) | — | **không decode** | — |
 
 Nhắc lại: các giá trị này giảm tải **hạ nguồn** (nvstreammux, Triton, copy buffer) chứ
@@ -280,7 +281,7 @@ Nếu chạm trần, thứ tự cắt: giảm `instance_group` → giảm `max_b
 systemd `CPUQuota=`.
 
 **Lý do DB postprocess không được chạy trong probe:** probe chạy trên luồng streaming của
-GStreamer. Hậu xử lý DB (`pyclipper` + `shapely`, port từ `det/db.py:163-169`) cho 5
+GStreamer. Hậu xử lý DB (`pyclipper` + `shapely`) cho 5
 camera ccode sẽ nghẽn cả pipeline. Đưa xuống Triton Python backend với
 `instance_group count: N` ⇒ N process thật, không vướng GIL.
 
@@ -338,7 +339,7 @@ trong dự án (DN-011, DN-012) và một bảng viết tay sẽ lỗi thời tr
 #### Tải mục tiêu — suy từ cấu hình thật
 
 5 camera có ROI ccode (1, 4, 6, 7, 8), tổng **20 ROI** khai báo. Mỗi lane hoạt động chạy
-khoảng một nửa số ROI **song song** (`ccode_camera/main.py:205-217`), ở ~5 fps sau decimate:
+khoảng một nửa số ROI chạy **song song**, ở ~5 fps sau decimate:
 
 | Tình huống | Tải |
 |---|---|

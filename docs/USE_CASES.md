@@ -37,8 +37,7 @@ Hai chiều hàng, **quy trình khác nhau về thứ tự**:
 | **Đáy** | **9** | `Soi đáy` |
 
 Camera 3 và 5 (`Đầu kéo - Lane 1/2`) **không** tham gia chụp mặt container — chúng chỉ
-đọc số xe đầu kéo. Chín camera có clip: 1, 2, 4, 6, 7, 8, 9, 10, 11
-(`service.py:32`) — không có 3 và 5.
+đọc số xe đầu kéo. Chín camera có clip: 1, 2, 4, 6, 7, 8, 9, 10, 11 — không có 3 và 5.
 
 ---
 
@@ -62,10 +61,10 @@ Không thể đọc mã trước đó.
 xe, camera 9 nhìn từ dưới lên thấy được đáy. Sau khi hạ xuống rơ-moóc thì không còn thấy.
 
 **Điểm khó — thứ tự ngược:** hệ thống chỉ biết đây là hàng **nhập** sau khi đã đọc xong số
-container và tra manifest Oracle (`ccode_camera/main.py:284`). Nhưng ảnh 6 mặt phải chụp
-**trước** thời điểm đó. Một buffer quay vòng trong RAM giải quyết được
-(`bottom_camera.py`, 1 fps × 40 s). **v2 dùng segment mp4 trên đĩa**, nên `evidenced` cắt
-được bất kỳ cửa sổ quá khứ nào — không còn giới hạn 40 giây, và không tốn RAM.
+container và tra manifest Oracle. Nhưng ảnh 6 mặt phải chụp
+**trước** thời điểm đó. Một buffer quay vòng trong RAM giải được, nhưng nó giới hạn cửa sổ
+nhìn lại đúng bằng dung lượng buffer. **Dùng segment mp4 trên đĩa** thì `evidenced` cắt
+được bất kỳ cửa sổ quá khứ nào, và không tốn RAM.
 
 ### Payload push (bước 6)
 
@@ -99,10 +98,9 @@ Theo đặc tả nghiệp vụ:
 
 **Vì sao chỉ 5 mặt ở bước 5:** container đang nằm trên rơ-moóc, đáy bị che.
 
-**Vì sao mặt đáy ở bước 7:** cẩu đã nhấc container lên khỏi xe, đáy lộ ra. Hiện thực
-đúng điều này: `generate_bottom_container_image` **chờ 30 giây** sau mốc `crane_op` khi
-`ixCd == "X"` (`service.py:1166-1167`), và đảo chiều chọn khung
-(`is_reverse=(ixCd == "X")`, `:1183`). Với hàng nhập thì không chờ.
+**Vì sao mặt đáy ở bước 7:** cẩu đã nhấc container lên khỏi xe, đáy mới lộ ra. Nên với
+hàng **xuất** (`ixCd == "X"`) phải **chờ 30 giây** sau mốc `crane_op` rồi mới chọn khung,
+và chọn theo chiều ngược lại. Với hàng nhập thì không chờ.
 
 ### Payload push lần 1 (bước 4)
 

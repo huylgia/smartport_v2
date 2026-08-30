@@ -102,7 +102,7 @@ phòng (bậc 3-7 s) để phát một giá trị suy đoán khi đầu xe khu�
 Khái niệm `truck_position` trước đây còn được **camera ccode** dùng, qua biến toàn cục
 `BaseCamera.TRUCK_STABLE_POSITION_LANE_DICT`, cho hai việc:
 
-* **Cổng chặn** (`ccode_camera/main.py:426-431`): `truck_position` rỗng ⇒ **bỏ qua OCR hoàn
+* **Cổng chặn**: `truck_position` rỗng ⇒ **bỏ qua OCR hoàn
   toàn**. Đây là cơ chế tiết kiệm tính toán đáng kể — và trên RTX 3060 thì càng đáng giữ.
 * **Gán slot** (`:744-756` `get_cont_position`): ánh xạ `(truck_position, cont_dim)` →
   `cont_position` cho *kết quả OCR*, để biết mã vừa đọc thuộc container nào.
@@ -129,7 +129,7 @@ Cổng chặn là `truck_stable` từ `CRANE02`, và **định nghĩa "ổn đ�
 
 | | Cách thường gặp | Ở đây |
 |---|---|---|
-| Điều kiện | tâm bbox dịch ≤ 3 px trong ≥ 3 khung liên tiếp (`data.py:100-126`) | bbox không dịch chuyển trong `stable_duration` |
+| Điều kiện | tâm bbox dịch ≤ 3 px trong ≥ 3 khung liên tiếp | bbox không dịch chuyển trong `stable_duration` |
 | Cửa sổ | 3 khung ≈ 0,9 s ở 3,3 fps — **trôi theo fps** | **3,0 s**, cấu hình được |
 | Ngưỡng dịch chuyển | 3 px tuyệt đối | tương đối theo kích thước bbox |
 
@@ -197,7 +197,7 @@ v2:  lane_zones = {"1": [[x,y],...], "2": [...], "3": [...]}   (mỗi lane một
    một dải — xe chạy ngang phía xa vẫn bị gán lane 1 hoặc 3. Đa giác trả `None`.
 3. **Ranh giới tường minh.** Với hai đường, lane 2 là "khoảng ở giữa" — không viết ra được.
 4. **Bỏ được cờ đảo dấu.** Cách cũ cần hai bản `get_head_lane` cho
-   `tcode_camera/main.py:118-129`, cùng hình dạng nhưng **ngược dấu** vì hai camera nhìn từ
+   cho camera tcode, cùng hình dạng nhưng **ngược dấu** vì hai camera nhìn từ
    hai hướng. Với đa giác thì mỗi camera khai vùng của nó, không cần biết hướng.
 
 ### Kiểu lỗi mới mà cách này tạo ra
@@ -534,8 +534,8 @@ Volume `models` là **tmpfs**: bản rõ ONNX không chạm đĩa, và mất s�
 Sơ đồ ngây thơ: key = SHA512(product_key | hostname | machine | processor | serial)[:20]
 ```
 
-Hàm sinh khoá **nằm ngay trong phần mềm được giao** (`src/utils/license_utils.py`). Bất kỳ
-ai có phần mềm cũng chạy được nó trên máy mới và tự cấp cho mình một khoá hợp lệ.
+Hàm sinh khoá **nằm ngay trong phần mềm được giao**, nên bất kỳ ai có phần mềm cũng chạy
+được nó trên máy mới và tự cấp cho mình một khoá hợp lệ.
 
 Đây là điểm mấu chốt: **đổi sang định danh phần cứng mạnh hơn không sửa được gì cả.** Kẻ
 sao chép chỉ việc sinh vân tay mới trên máy mới rồi tự băm ra khoá. Định danh mạnh chỉ ngăn
@@ -586,14 +586,41 @@ Trong container `--gpus device=0 --cpus=2 --memory=2g`:
 | Chép sang máy khác | ✅ từ chối — "không thuộc thiết bị này" |
 | Khách tự ký bằng khoá riêng của mình | ✅ từ chối — "chữ ký không hợp lệ" |
 
-### Việc còn phải làm
+### ⚠️ Khoá xác minh **chỉ** đến từ hằng số trong mã nguồn
 
-1. **Sinh cặp khoá thật** và dán `EMBEDDED_PUBLIC_KEY` vào `internal/pkg/security/license.py`. Hiện
-   để trống, và khi trống thì `validate()` **từ chối mọi giấy phép** — chọn như vậy để
-   không bao giờ có trạng thái "quên cấu hình mà vẫn chạy".
-2. **Cất khoá riêng** ngoài repo. Mất là không cấp được giấy phép mới; lộ là ai cũng cấp được.
-3. Khoá theo sơ đồ cũ (dạng `4CF7EB5126-EA2393B5C9-NOEXP`) **không còn dùng được**
-   — `validate()` báo rõ đó là định dạng cũ đã bỏ.
+Từng có `CRANEOPS_LICENSE_PUBLIC_KEY` cho phép ghi đè `EMBEDDED_PUBLIC_KEY`, với lý do "cho
+test và staging". Nó **vô hiệu hoá toàn bộ cơ chế cấp phép**, và đã kiểm chứng bằng cách
+khai thác thật:
+
+| | Kết quả |
+|---|---|
+| Không đặt biến, khoá nhúng xác minh | ✅ từ chối giấy phép tự ký |
+| Đặt biến = khoá công khai của chính kẻ tự ký | ❌ **chấp nhận** cho một máy không được cấp phép |
+
+Tự sinh cặp khoá → đặt phần công khai vào biến môi trường → tự ký giấy phép cho bất kỳ máy
+nào. Một biến môi trường là đủ.
+
+**Nguyên tắc rút ra:**
+
+> Ranh giới tin cậy phải nằm đúng chỗ quyền hạn thường ngày của người vận hành kết thúc.
+
+Sửa file cấu hình và biến môi trường **là việc của người vận hành** — họ được phép, và họ
+làm hằng ngày. Còn sửa một hằng số trong mã nguồn rồi dựng lại image thì không; ai làm được
+tới đó đã có quyền thực thi mã tuỳ ý, lúc ấy cấp phép không còn là hàng rào nữa. Nên khoá
+xác minh phải nằm ở phía **artifact**, không phải phía **config**.
+
+Hệ quả cho ai đọc sau: **đừng thêm lại bất kỳ đường ghi đè nào qua env**, kể cả cho staging.
+Staging cần khoá khác thì dựng image riêng với `EMBEDDED_PUBLIC_KEY` của nó. Test ghi đè
+bằng `monkeypatch.setattr` — cần chạy mã trong tiến trình, không phải chỉ đặt một biến — và
+`test_no_environment_variable_can_override_the_embedded_key` khoá điều này lại.
+
+### Vận hành: đổi khoá nhúng làm **mọi giấy phép cũ hết hiệu lực**
+
+`EMBEDDED_PUBLIC_KEY` gắn với đúng một khoá riêng. Sinh cặp khoá mới rồi dán vào nghĩa là
+mọi giấy phép đã cấp bằng khoá riêng cũ sẽ bị từ chối với *"chữ ký không hợp lệ"*. Trước khi
+đổi, phải chắc đã cấp lại giấy phép cho **mọi** máy đang chạy.
+
+Khoá riêng cất ngoài repo: mất là không cấp được giấy phép mới, lộ là ai cũng cấp được.
 
 ### Giới hạn còn lại — cần nói thẳng
 
@@ -601,10 +628,15 @@ Mã nguồn Python nằm dạng rõ trong container (mount `:ro`). Ai có quyề
 được `internal/pkg/security/license.py` và **sửa** nó để bỏ qua bước kiểm tra. Chữ ký chặn được việc
 *tự cấp giấy phép*, không chặn được việc *gỡ bỏ đoạn kiểm tra*.
 
-Đó là giới hạn cố hữu của phần mềm chạy trên máy khách. Muốn siết thêm thì phải obfuscate
-hoặc biên dịch, nhưng cần cân nhắc: với PyInstaller, mật khẩu giải mã model vẫn moi
-ra được bằng `strings`. Giấy phép nên coi là **rào cản hành chính có bằng chứng**, không
-phải bảo vệ kỹ thuật tuyệt đối.
+Đó là giới hạn cố hữu của phần mềm chạy trên máy khách. Giấy phép nên coi là **rào cản
+hành chính có bằng chứng**, không phải bảo vệ kỹ thuật tuyệt đối.
+
+Muốn siết thêm thì phải obfuscate hoặc biên dịch. Nhưng trước khi làm, hãy chắc là đang
+siết đúng chỗ: bí mật **duy nhất** cần bảo vệ là mật khẩu giải mã model, và nó **không nằm
+trong mã nguồn** — chỉ đọc từ `CRANEOPS_MODEL_PASSWORD` lúc chạy, thiếu thì
+`cipher._password()` ném `MissingPassword` chứ không có giá trị dự phòng. Nên `strings`
+trên một binary PyInstaller **không moi ra được gì**. Biên dịch chỉ làm khó việc *gỡ đoạn
+kiểm tra*, không giấu thêm bí mật nào.
 
 
 ---

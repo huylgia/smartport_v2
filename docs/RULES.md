@@ -9,7 +9,7 @@ xem `configs/operations/crane_operation.yaml`.
 giữa hàng nhập và hàng xuất — xem [USE_CASES.md](USE_CASES.md).
 
 **Rule không biết gì về nhau.** Mọi liên kết đi qua signal, vì
-camera giao tiếp bằng cách sửa biến class global trên `BaseCamera` (`camera/base.py:30-37`).
+camera giao tiếp bằng cách sửa biến class global dùng chung.
 
 ## Bảng tổng hợp
 
@@ -68,7 +68,7 @@ bỏ lỡ chu kỳ nào không.
 
 **`truck_stable` là cổng chặn OCR.** `CCODE01` chỉ chạy khi lane có `truck_stable`. Trước đây
 cơ chế này đi qua biến global `BaseCamera.TRUCK_STABLE_POSITION_LANE_DICT`
-(`ccode_camera/main.py:426-431`); v2 đi qua topic `craneops.signals`. Bỏ cổng chặn nghĩa là
+trong cùng một process; nay đi qua topic `craneops.signals`. Bỏ cổng chặn nghĩa là
 5 camera ccode chạy DB detection + SVTR recognition 24/7 kể cả khi dưới cẩu trống.
 
 ⚠️ **Không có khái niệm `truck_position`.** Vị trí trước/sau không suy từ cặp đường
@@ -82,7 +82,7 @@ container ↔ đầu xe. Xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-001.
 
 ⚠️ Chưa có timeout dự phòng để báo vị trí *dù chưa ổn định*. Ngưỡng như vậy sẽ phụ
 thuộc `ContainerCodeCamera.DATABASE` — biến class global đọc chéo từ package khác
-(`crane_camera/data.py:41-49`). Phần đó gắn với `truck_position` vốn đã bị bỏ (DN-001);
+Phần đó gắn với `truck_position` vốn đã bị bỏ (DN-001);
 cần quyết định có giữ timeout dự phòng cho `truck_stable` không.
 
 ---
@@ -120,7 +120,7 @@ Cả quy tắc dẫn xuất lẫn mã dashboard đều nằm trên `ContainerPos
 `chassis_position` riêng — nó suy 1:1 từ `cont_position`, và để hai giá trị đi riêng
 chỉ tạo thêm một đường cho chúng mâu thuẫn. Tách làm hai trường trên `Event`
 (`chassisPosition`, `chassisPosition2`) cùng một bảng tra riêng ở
-`utils/data_utils.py:299-308`.
+quy ước gửi dashboard.
 
 | Config | Mặc định |
 |---|---|
@@ -136,26 +136,26 @@ Rule nặng nhất. Chuỗi xử lý (phần det+rec đã đẩy xuống Triton,
 2. **DB text detection** → lấy `top_k` vùng theo diện tích.
 3. **Cổng độ nét**: điểm FFT magnitude ≥ `sharpness_min` mới cho qua.
 4. **SVTR CTC recognition** → chuỗi + confidence.
-5. **Phân loại từng chuỗi** (`recognize_container_code.py:439-465`):
+5. **Phân loại từng chuỗi**:
    - `iso`: dài 4, < 3 ký tự chữ
    - mã đầy đủ: dài ≥ 11
    - `part-1`: dài 4, ≥ 3 ký tự chữ
    - `part-2`: dài ≥ 6
 6. **Ghép mảnh** part-1 + part-2 theo khoảng cách tâm ≤ `pair_distance_px`.
-7. **Sửa mã**: check digit ISO 6346, bảng nhầm lẫn OCR, bảng sửa owner-prefix 180 dòng
-   (`utils/ccode_utils.py:50-181`), cắt bớt khi dài > 11.
+7. **Sửa mã**: check digit ISO 6346, bảng nhầm lẫn OCR, bảng sửa owner-prefix (~180 dòng),
+   cắt bớt khi dài > 11.
 8. **Streak voting**: cùng một mã xuất hiện ≥ `min_streak` frame liên tiếp mới phát signal.
 
-| Config | Mặc định | Nguồn |
+| Config | Mặc định | Ghi chú |
 |---|---|---|
-| `top_k` | 5 | `recognize_container_code.py:37` |
-| `sharpness_min` | 1000 | `:327` |
-| `pair_distance_px` | 60 | `:523`, `:571` |
-| `bitmap_threshold` | 0,1 | `ccode_camera/main.py:73-83` |
-| `box_threshold` | 0,2 | như trên |
-| `character_threshold` | 0,3 | như trên |
-| `iso_threshold` | 0,95 | như trên |
-| `min_streak` | 3 | |
+| `top_k` | 5 | số hộp giữ lại sau khi xếp theo diện tích |
+| `sharpness_min` | 1000 | dưới ngưỡng này thì bỏ crop, không đưa vào OCR |
+| `pair_distance_px` | 60 | khoảng cách tâm tối đa để ghép part-1 với part-2 |
+| `bitmap_threshold` | 0,1 | ⚠️ hai ngưỡng này quyết định độ chính xác số học |
+| `box_threshold` | 0,2 | được phép của detector — xem DESIGN_NOTES DN-013 |
+| `character_threshold` | 0,3 | ký tự dưới ngưỡng bị loại trước khi bỏ lặp CTC |
+| `iso_threshold` | 0,95 | |
+| `min_streak` | 3 | số khung liên tiếp cùng một mã mới phát signal |
 
 ⚠️ **Tri thức miền.** Bước 5–7 phải port gần nguyên văn và golden-test trước khi refactor.
 
@@ -173,9 +173,9 @@ output mã container mà **không** phát hiện đầu kéo dưới cẩu.
 | `min_streak` | 3 | **5** |
 | `min_cont_count` | — | **3** |
 
-Phát signal với `direction = COUNTER`. Đừng nhân đôi cả pipeline cho chiều này — chỉ khác
-`direction_index=2` và tag `"WRONG DIRECTION"`, nhân đôi code ở **cả** `service.py:253-296`
-**và** `ccode_camera/main.py:150-190`. v2 chỉ là một rule khác cấu hình.
+Phát signal với `direction = COUNTER`. **Đừng nhân đôi pipeline cho chiều này** — nó chỉ
+khác vài ngưỡng, nên nó là một rule khác *cấu hình*, không phải một nhánh code khác. Nhân
+đôi nghĩa là mọi sửa lỗi sau này phải nhớ sửa hai chỗ.
 
 ---
 
@@ -187,11 +187,11 @@ Camera 3 và 5. PicoDet phát hiện đầu kéo → FastViT **phân loại** s�
 > nên đây là classifier chứ không phải OCR. Ánh xạ đúng vào mô hình PGIE→SGIE của
 > DeepStream — cùng cơ chế mà DeepStream dùng để gắn thuộc tính lên bbox.
 
-| Config | Mặc định | Nguồn |
+| Config | Mặc định | Ghi chú |
 |---|---|---|
-| `head_thresh` | 0,8 | `tcode_camera/main.py:30` |
-| `head_code_thresh` | 0,93 | như trên |
-| `min_streak` | 3 | `tcode_camera/data.py:60-64` |
+| `head_thresh` | 0,8 | ngưỡng tin cậy của PicoDet cho bbox đầu kéo |
+| `head_code_thresh` | 0,93 | ngưỡng của classifier — cao hơn vì tập lớp đóng |
+| `min_streak` | 3 | số khung liên tiếp cùng một số xe mới phát signal |
 
 Gán lane dùng chung `LaneZones` như `CRANE01` — mỗi camera khai `lane_zones` riêng, không
 còn cờ đảo dấu theo hướng camera (xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-002).
@@ -209,9 +209,9 @@ việc dựng ảnh (CLAHE + ghép 2×2) là của `evidenced`.
 | Config | Mặc định | Nguồn |
 |---|---|---|
 | `post_op_delay` | 30 s | Chỉ khi `ix_cd == "X"` (hàng xuất) |
-| `frames_per_mosaic` | 4 | `bottom_camera.py:16-42` |
-| `mosaic_count` | 3 | `service.py:1109-1224` |
-| `frame_interval` | 20 s | `service.py:1120` |
+| `frames_per_mosaic` | 4 | số khung ghép vào một ảnh mosaic 2×2 |
+| `mosaic_count` | 3 | số ảnh mosaic sinh cho mỗi sự kiện |
+| `frame_interval` | 20 s | khoảng cách giữa các khung được chọn |
 
 ---
 
