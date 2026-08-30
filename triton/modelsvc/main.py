@@ -6,16 +6,18 @@ không khởi động. Đây là chỗ duy nhất trong hệ thống chạm vào
     .t7 (mã hoá, trên đĩa)
         │  kiểm license gắn phần cứng
         ▼
-    .onnx  →  /run/craneops/models/<model>/1/  (tmpfs, 0400)
-        │  trtexec --fp16
+    .onnx  →  /dev/shm  (tmpfs, xem SCRATCH_DIR)
+        │  trtexec  (FP32 cho ccode — xem DN-008/DN-013; FP16 cho pico/cls)
         ▼
-    .plan  →  giữ lại
+    .plan  →  giữ lại trong volume `craneops_models`
     .onnx  →  XOÁ
 
-Vì sao là tmpfs: ``/run`` nằm trong RAM và bị xoá sạch khi khởi động lại, nên bản rõ không
-bao giờ chạm đĩa. Đánh đổi phải nói rõ — và đã ghi trong ``docs/DESIGN_NOTES.md``: khi
-Triton đang chạy thì file ``.plan`` vẫn đọc được bởi ai có quyền root trên máy. Đây là
-rào cản đáng kể chứ không phải bảo vệ tuyệt đối, và ghi ra đây để không ai nhầm.
+Vì sao là tmpfs: nội dung nằm trong RAM và mất hẳn khi container dừng, nên bản rõ không
+bao giờ chạm đĩa. ``prepare_model`` **kiểm** điều này lúc chạy chứ không tin cấu hình.
+
+Đánh đổi phải nói rõ — và đã ghi trong ``docs/DESIGN_NOTES.md``: khi Triton đang chạy thì
+file ``.plan`` vẫn đọc được bởi ai có quyền root trên máy. Đây là rào cản đáng kể chứ
+không phải bảo vệ tuyệt đối, và ghi ra đây để không ai nhầm.
 
 Cách dùng::
 
@@ -243,7 +245,9 @@ def prepare_model(
             f"{SCRATCH_DIR} không phải tmpfs — bản rõ model sẽ bị ghi xuống đĩa.\n"
             f"Trong compose, khai nó ở mục `tmpfs:` chứ KHÔNG phải `volumes:`; một mục "
             f"`- /dev/shm` trong `volumes:` tạo anonymous volume trên đĩa.\n"
-            f"Kiểm bằng: docker compose exec modelsvc df -h {SCRATCH_DIR}"
+            f"Kiểm bằng: docker compose --env-file build/.env.triton "
+            f"-f build/docker-compose.triton.yml run --rm --no-deps "
+            f"--entrypoint sh modelsvc -c 'df -h {SCRATCH_DIR}'"
         )
     scratch = SCRATCH_DIR
     onnx_path = scratch / f"{spec.name}.onnx"
