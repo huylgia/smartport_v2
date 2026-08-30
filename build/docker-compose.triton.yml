@@ -18,7 +18,7 @@ services:
     image: ${TRITON_IMAGE:-craneops-triton:dev}
     # Chạy như root TRONG container để đọc được /sys/class/dmi/id/product_serial (0400).
     # Đây cũng là lý do khoá phải được cấp cho ngữ cảnh này, không phải cho host —
-    # hai nơi đọc ra hai serial khác nhau. Xem internal/pkg/license.py.
+    # hai nơi đọc ra hai serial khác nhau. Xem internal/pkg/security/license.py.
     user: "0:0"
     environment:
       CRANEOPS_LICENSE_KEY: ${CRANEOPS_LICENSE_KEY:?thiếu khoá bản quyền}
@@ -49,7 +49,7 @@ services:
       python3 -m triton.modelsvc.main --repo /models
     # ⚠️ Tập GPU cấp ở đây PHẢI trùng với lúc lấy vân tay cấp phép — UUID của GPU nằm
     # trong vân tay, nên "device=0" và "all" cho hai vân tay khác nhau.
-    # Xem internal/pkg/fingerprint.py.
+    # Xem internal/pkg/security/fingerprint.py.
     deploy:
       resources:
         limits:

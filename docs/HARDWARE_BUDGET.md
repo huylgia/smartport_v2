@@ -260,8 +260,7 @@ Nếu chạm trần, thứ tự cắt: giảm `instance_group` → giảm `max_b
 `h`/`v` theo nhu cầu thay vì giữ cả hai thường trực.
 
 **Vì sao dùng engine chung:** một phiên suy luận riêng cho mỗi ROI tốn ~500 MB; 16 phiên cho MỘT camera là **~8 GB**
-(`inference/base.py:63,232` ép `batch_size=1`; GC03 camera 1 khai 8 OCR config ⇒ 16
-session det+rec). Chuyển sang engine dùng chung trên Triton là **điều kiện cần** để chạy
+(một phiên bị ép `batch_size=1`; GC03 camera 1 khai 8 OCR config ⇒ 16 phiên det+rec). Chuyển sang engine dùng chung trên Triton là **điều kiện cần** để chạy
 được trên phần cứng này.
 
 ---

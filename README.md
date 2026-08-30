@@ -31,6 +31,7 @@ Cần `build/.env.triton` với `CRANEOPS_LICENSE_KEY`, `CRANEOPS_MODEL_PASSWORD
 | [docs/MESSAGE_CONTRACT.md](docs/MESSAGE_CONTRACT.md) | Hợp đồng 7 topic Kafka |
 | [docs/HARDWARE_BUDGET.md](docs/HARDWARE_BUDGET.md) | **Nguồn sự thật duy nhất cho mọi con số** — VRAM/CPU/đĩa, hiệu năng, độ chính xác |
 | [docs/RULES.md](docs/RULES.md) | Đặc tả 8 rule |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | **Triển khai và vận hành Triton trên máy đích** |
 | [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md) | 13 quyết định đã chốt, kèm lý do đủ để biết đổi nó sẽ phá cái gì |
 
 ## Bố cục
