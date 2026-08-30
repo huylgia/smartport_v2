@@ -112,8 +112,23 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-# Thư viện native / không có stub.
-module = ["cv2.*", "pyclipper.*", "shapely.*", "minio.*", "oracledb.*", "tritonclient.*", "onnxruntime.*", "pyds.*", "gi.*", "pynvml.*", "triton_python_backend_utils.*"]
+# Thư viện native / không có stub, HOẶC nằm trong extra tuỳ chọn nên có thể không được cài.
+# `onnx` thuộc loại thứ hai: nó chỉ nằm trong extra `export`, nên thiếu nó ở đây làm
+# `make check` đỗ hay trượt tuỳ vào việc máy đó có tình cờ cài extra hay không.
+module = [
+    "cv2.*",
+    "pyclipper.*",
+    "shapely.*",
+    "minio.*",
+    "oracledb.*",
+    "tritonclient.*",
+    "onnx.*",
+    "onnxruntime.*",
+    "pyds.*",
+    "gi.*",
+    "pynvml.*",
+    "triton_python_backend_utils.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
