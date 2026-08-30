@@ -109,8 +109,8 @@ Phải chạy trong container, với đúng `CRANEOPS_GPU` sẽ dùng lúc chạ
 
 ```bash
 cp build/.env.triton.example build/.env.triton
-# điền CRANEOPS_ASSETS, CRANEOPS_MODEL_PASSWORD, CRANEOPS_GPU trước đã;
-# CRANEOPS_LICENSE_KEY để trống ở bước này
+# CHỈ cần điền CRANEOPS_ASSETS và CRANEOPS_GPU cho bước này.
+# CRANEOPS_LICENSE_KEY và CRANEOPS_MODEL_PASSWORD cứ để trống — lấy vân tay không cần chúng.
 
 docker compose --env-file build/.env.triton -f build/docker-compose.triton.yml \
   run --rm --no-deps modelsvc python3 -m tools.issue_license --fingerprint
@@ -159,8 +159,10 @@ CRANEOPS_GPU=0                      # PHẢI trùng lúc lấy vân tay
 TRITON_IMAGE=craneops-triton:dev
 ```
 
-> Không có mật khẩu thì `modelsvc` dừng ngay với `MissingPassword`. Đây là **cố ý**: một
-> mật khẩu mặc định trong source là mật khẩu công khai.
+> Thiếu khoá hoặc mật khẩu thì `modelsvc` dừng với mã thoát khác 0 (đã kiểm: `2` khi thiếu
+> khoá, `1` khi thiếu mật khẩu), và `triton` không bao giờ khởi động vì nó chờ
+> `service_completed_successfully`. Không có giá trị mặc định nào cho mật khẩu — một mật
+> khẩu mặc định trong source là mật khẩu công khai.
 
 ### 5.1 Giới hạn tài nguyên cho RTX 3060 / i7-12700
 
@@ -286,6 +288,26 @@ Vân tay lúc xin phép ≠ vân tay lúc chạy. Theo thứ tự khả năng:
 3. Đổi bo mạch chủ hoặc card. Phải xin giấy phép mới.
 
 Chẩn đoán: lấy lại vân tay (§4 bước 2) và so digest với digest đã gửi đi.
+
+### `required variable CRANEOPS_LICENSE_KEY is missing a value`
+
+Lỗi này đến từ **Compose**, không phải từ code, và xảy ra ngay ở bước lấy vân tay — tức
+trước khi bạn có thể có giấy phép.
+
+Nguyên nhân: compose từng khai `${CRANEOPS_LICENSE_KEY:?…}`. Toán tử `:?` được đánh giá lúc
+**nội suy**, trước khi bất kỳ container nào chạy, kể cả `run` với lệnh hoàn toàn khác. Nên
+nó bắt bạn phải có giấy phép để chạy chính cái lệnh dùng để xin giấy phép.
+
+Đã sửa: hai biến đó nay dùng `:-` và được kiểm trong code (`main()` cho khoá,
+`cipher._password()` cho mật khẩu) với thông báo rõ hơn. `git pull` là hết.
+
+Nếu chưa cập nhật được, đi vòng bằng cách truyền giá trị giả cho riêng lệnh đó:
+
+```bash
+CRANEOPS_LICENSE_KEY=x CRANEOPS_MODEL_PASSWORD=x docker compose \
+  --env-file build/.env.triton -f build/docker-compose.triton.yml \
+  run --rm --no-deps modelsvc python3 -m tools.issue_license --fingerprint
+```
 
 ### `giấy phép sai định dạng`
 

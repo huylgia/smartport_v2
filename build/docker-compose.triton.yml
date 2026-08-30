@@ -21,8 +21,17 @@ services:
     # hai nơi đọc ra hai serial khác nhau. Xem internal/pkg/security/license.py.
     user: "0:0"
     environment:
-      CRANEOPS_LICENSE_KEY: ${CRANEOPS_LICENSE_KEY:?thiếu khoá bản quyền}
-      CRANEOPS_MODEL_PASSWORD: ${CRANEOPS_MODEL_PASSWORD:?thiếu mật khẩu giải mã model}
+      # ⚠️ `:-` chứ KHÔNG phải `:?`. Compose đánh giá `:?` lúc **nội suy**, tức trước khi
+      # bất kỳ container nào chạy — kể cả `run` với lệnh khác. Dùng `:?` ở đây làm hỏng
+      # đúng bước bootstrap bắt buộc:
+      #
+      #     run --rm modelsvc python3 -m tools.issue_license --fingerprint
+      #
+      # Phải lấy vân tay TRƯỚC mới xin được giấy phép, nên yêu cầu có giấy phép để lấy
+      # vân tay là một vòng lặp chết. Cả hai biến đều đã được kiểm trong code, với thông
+      # báo rõ hơn: `main()` cho khoá, `cipher._password()` cho mật khẩu.
+      CRANEOPS_LICENSE_KEY: ${CRANEOPS_LICENSE_KEY:-}
+      CRANEOPS_MODEL_PASSWORD: ${CRANEOPS_MODEL_PASSWORD:-}
       # Trong container, assets được mount ở /assets — khác đường dẫn trên host.
       CRANEOPS_ASSETS: /assets
     volumes:
