@@ -12,14 +12,12 @@ DEVICE_A = DeviceFingerprint(
     sources={
         "dmi_uuid": "a53bf5bc-fcbc-17e7-06a7-bcfce71706a6",
         "board_serial": "241247619300243",
-        "gpu": "GPU-b2bc31c4-3d57-6c15-1dba-a4e8b4fe9cc5",
     }
 )
 DEVICE_B = DeviceFingerprint(
     sources={
         "dmi_uuid": "ffffffff-0000-1111-2222-333333333333",
         "board_serial": "999999999999999",
-        "gpu": "GPU-00000000-1111-2222-3333-444444444444",
     }
 )
 
@@ -57,9 +55,9 @@ def test_changing_any_single_source_changes_the_digest() -> None:
         assert DeviceFingerprint(sources=altered).digest != DEVICE_A.digest
 
 
-@pytest.mark.parametrize("strong_key", ["dmi_uuid", "gpu"])
-def test_is_strong_needs_an_unforgeable_source(strong_key: str) -> None:
-    assert DeviceFingerprint(sources={strong_key: "v"}).is_strong
+def test_is_strong_needs_dmi_uuid() -> None:
+    """``dmi_uuid`` là định danh không-sửa-được-bằng-phần-mềm duy nhất còn lại."""
+    assert DeviceFingerprint(sources={"dmi_uuid": "v"}).is_strong
 
 
 def test_board_serial_alone_is_not_considered_strong() -> None:
@@ -171,15 +169,15 @@ def test_symmetric_hash_key_error_says_why(vendor_key: Ed25519PrivateKey) -> Non
 
 
 def test_weak_device_is_rejected(vendor_key: Ed25519PrivateKey) -> None:
-    """Không có dmi_uuid lẫn gpu ⇒ ràng buộc thiết bị vô nghĩa ⇒ từ chối."""
-    weak = DeviceFingerprint(sources={"board_serial": "1"}, missing=("dmi_uuid", "gpu"))
+    """Không có dmi_uuid ⇒ ràng buộc thiết bị vô nghĩa ⇒ từ chối."""
+    weak = DeviceFingerprint(sources={"board_serial": "1"}, missing=("dmi_uuid",))
     token = lic.issue(weak.digest, vendor_key)
     with pytest.raises(lic.LicenseError, match="không-đổi-được"):
         lic.validate(token, fingerprint=weak)
 
 
 def test_weak_device_accepted_when_explicitly_allowed(vendor_key: Ed25519PrivateKey) -> None:
-    weak = DeviceFingerprint(sources={"board_serial": "1"}, missing=("dmi_uuid", "gpu"))
+    weak = DeviceFingerprint(sources={"board_serial": "1"}, missing=("dmi_uuid",))
     token = lic.issue(weak.digest, vendor_key)
     assert lic.validate(token, fingerprint=weak, require_strong=False).device == weak.digest
 
@@ -240,3 +238,20 @@ def test_no_environment_variable_can_override_the_embedded_key(
 
     with pytest.raises(lic.LicenseError, match="chữ ký không hợp lệ"):
         lic.validate(forged, fingerprint=DEVICE_B)
+
+
+def test_fingerprint_does_not_depend_on_gpu_visibility() -> None:
+    """Vân tay phải định danh MÁY, không phải cách khởi chạy container.
+
+    UUID của GPU từng nằm trong vân tay. Vấn đề: container chỉ thấy GPU được cấp qua
+    ``--gpus``, mà ``ds_app`` buộc phải dùng ``count: all`` (pin ``device_ids`` không cấp
+    node NVDEC) còn Triton thì nên pin. Hai service trên cùng một máy sẽ ra hai digest khác
+    nhau, và lỗi hiện ra là "không thuộc thiết bị này" — không gợi ý gì. Xem DN-014.
+    """
+    import inspect
+
+    from internal.pkg.security import fingerprint as fp
+
+    src = inspect.getsource(fp)
+    assert "nvidia-smi" not in src, "GPU đã quay lại vân tay — xem DN-014 trước khi thêm"
+    assert "gpu" not in fp.collect().sources

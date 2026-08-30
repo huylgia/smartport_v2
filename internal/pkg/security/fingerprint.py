@@ -14,23 +14,31 @@ Nguồn                   Ví dụ                                     Đặc t�
 ======================= ========================================= ===========================
 ``dmi_uuid``            ``a53bf5bc-fcbc-17e7-06a7-bcfce71706a6``   UUID thật trong DMI
 ``board_serial``        ``241247619300243``                       Serial bo mạch
-``gpu``                 ``GPU-b2bc31c4-3d57-6c15-1dba-a4e8b4...``  Khắc trong card, bất biến
 ======================= ========================================= ===========================
 
-Cả ba đọc được **bên trong container mà không cần mount gì thêm** — ``/sys`` được chia sẻ
+Cả hai đọc được **bên trong container mà không cần mount gì thêm** — ``/sys`` được chia sẻ
 sẵn và tiến trình trong container là root.
 
-⚠️ **Ràng buộc về GPU:** container chỉ thấy những GPU được cấp qua ``--gpus``. Cấp
-``device=0`` và cấp ``all`` cho ra hai vân tay khác nhau. Khoá phải được cấp trong **đúng
-cấu hình** sẽ chạy. Máy đích chỉ có một GPU nên chuyện này không phát sinh, nhưng máy dev
-có hai — nên phải nhất quán.
+⚠️ **UUID của GPU CỐ Ý không nằm trong vân tay.** Nó là định danh mạnh — khắc trong card,
+không sửa được bằng phần mềm — nên bỏ đi là mất một chút sức ràng buộc. Nhưng nó phụ thuộc
+vào **cách cấp GPU cho container**, không phải vào máy:
+
+* ``ds_app`` **buộc** phải chạy với ``count: all``, vì pin bằng ``device_ids`` cấp CUDA
+  compute nhưng không cấp node V4L2 của NVDEC ⇒ ``nvv4l2decoder`` treo ở ``PREROLLING``.
+* Triton thì nên pin để giới hạn tài nguyên trên máy dùng chung.
+
+Đo được trên máy dev 2 GPU: ``device=0`` cho digest ``de4a5ace…``, ``all`` cho
+``e7c91d40…``. Tức hai service trên **cùng một máy** sẽ cần hai giấy phép khác nhau — một
+lỗi vận hành gần như chắc chắn xảy ra, và khi xảy ra thì thông báo là "giấy phép không
+thuộc thiết bị này", không hề gợi ý nguyên nhân.
+
+Vân tay phải định danh **cái máy**, không phải định danh cách khởi chạy container. Xem
+``docs/DESIGN_NOTES.md`` DN-014.
 """
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,31 +78,6 @@ def _read_dmi(name: str) -> str:
     return "" if value.strip().lower() in PLACEHOLDER_VALUES else value
 
 
-def _gpu_uuids() -> list[str]:
-    """UUID của các GPU NVIDIA mà tiến trình này nhìn thấy, đã sắp xếp.
-
-    Dùng ``nvidia-smi`` thay vì NVML để không cần thêm dependency Python — nó luôn có mặt
-    trong image có GPU.
-    """
-    nvidia_smi = "/usr/bin/nvidia-smi"
-    if not Path(nvidia_smi).exists():
-        return []
-    with contextlib.suppress(subprocess.SubprocessError, OSError):
-        out = subprocess.run(  # noqa: S603
-            [nvidia_smi, "--query-gpu=uuid", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=15,
-        ).stdout
-        return sorted(
-            line.strip()
-            for line in out.splitlines()
-            if line.strip() and line.strip().lower() not in PLACEHOLDER_VALUES
-        )
-    return []
-
-
 @dataclass(frozen=True, slots=True)
 class DeviceFingerprint:
     """Định danh của một thiết bị cụ thể."""
@@ -119,10 +102,11 @@ class DeviceFingerprint:
     def is_strong(self) -> bool:
         """Có đủ định danh **không đổi được** để ràng buộc thiết bị không.
 
-        Cần ít nhất một trong ``dmi_uuid`` / ``gpu`` — hai thứ duy nhất không sửa được
-        bằng phần mềm. ``board_serial`` mạnh nhưng một số bo mạch để trống.
+        Cần ``dmi_uuid`` — thứ duy nhất còn lại không sửa được bằng phần mềm sau khi bỏ
+        ``gpu`` (xem docstring module). ``board_serial`` không đủ một mình: nhiều bo mạch
+        để trống nó, và khi đó ràng buộc thiết bị trở nên vô nghĩa.
         """
-        return bool(self.sources.keys() & {"dmi_uuid", "gpu"})
+        return "dmi_uuid" in self.sources
 
     def describe(self) -> str:
         """Mô tả cho người đọc, che bớt giá trị — dùng khi báo lỗi."""
@@ -140,7 +124,6 @@ def collect() -> DeviceFingerprint:
     for label, value in (
         ("dmi_uuid", _read_dmi("product_uuid")),
         ("board_serial", _read_dmi("board_serial")),
-        ("gpu", ",".join(_gpu_uuids())),
     ):
         if value:
             found[label] = value

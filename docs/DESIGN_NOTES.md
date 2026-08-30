@@ -568,13 +568,13 @@ Khách hàng **không thể** tự cấp giấy phép cho máy mới — không 
 |---|---|---|
 | `dmi_uuid` | `a53bf5bc-fcbc-17e7-06a7-bcfce71706a6` | UUID thật trong DMI |
 | `board_serial` | `241247619300243` | Serial bo mạch thật |
-| `gpu` | `GPU-b2bc31c4-3d57-6c15-1dba-a4e8b4fe9cc5` | Khắc trong card, bất biến |
 
 Cả ba đọc được trong container **không cần mount gì thêm** (`/sys` chia sẻ sẵn, tiến trình
 trong container là root). Giá trị giữ chỗ của OEM bị loại qua `PLACEHOLDER_VALUES`.
 
-`is_strong` đòi ít nhất một trong `dmi_uuid` / `gpu` — hai thứ duy nhất không sửa được bằng
-phần mềm. Thiếu cả hai thì `validate()` **từ chối**, vì ràng buộc thiết bị sẽ vô nghĩa.
+`is_strong` đòi `dmi_uuid` — định danh không-sửa-được-bằng-phần-mềm duy nhất còn lại sau
+khi bỏ `gpu` (DN-014). Thiếu nó thì `validate()` **từ chối**, vì ràng buộc thiết bị sẽ vô
+nghĩa: `board_serial` một mình không đủ, nhiều bo mạch để trống nó.
 
 ### Đã chạy thử end-to-end
 
@@ -1266,4 +1266,18 @@ sập. Khi làm Phase 3, phải chốt một trong hai:
 * dùng `count: all` cho **cả hai** service để chúng cùng một vân tay, hoặc
 * bỏ `gpu` khỏi vân tay và chỉ dựa vào `dmi_uuid` + `board_serial`.
 
-Chưa chốt — cần quyết định trước khi `ds_app` chạy cùng Triton trên một máy.
+**✅ ĐÃ CHỐT: bỏ `gpu` khỏi vân tay.** Vân tay phải định danh **cái máy**, không phải định
+danh cách khởi chạy container — và `--gpus` là lựa chọn triển khai, không phải thuộc tính
+phần cứng. Kiểm chứng sau khi bỏ, trên máy dev 2 GPU:
+
+| Cách cấp | digest |
+|---|---|
+| `--gpus device=0` | `ef829a5f…` |
+| `--gpus all` | `ef829a5f…` — **trùng** |
+
+Cái giá: mất một định danh mạnh. Còn lại `dmi_uuid` (không sửa được bằng phần mềm) và
+`board_serial`; `is_strong` nay đòi đúng `dmi_uuid`. Đánh đổi này đúng vì lỗi mà nó ngăn —
+hai service cùng máy cần hai giấy phép — gần như chắc chắn xảy ra, còn phần bảo vệ mất đi
+thì nhỏ: kẻ chép phần mềm sang máy khác vẫn bị chặn bởi `dmi_uuid`.
+
+⚠️ Đổi thành phần vân tay làm **mọi giấy phép đã cấp hết hiệu lực**. Phải cấp lại.

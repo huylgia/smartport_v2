@@ -21,23 +21,17 @@ thư mục engine.
 
 ### 1.2 Giấy phép gắn với **vân tay phần cứng** — và vân tay đó phải lấy **trong container**
 
-Vân tay gồm ba nguồn: `dmi_uuid`, `board_serial`, `gpu`. Hai nguồn đầu đọc từ
-`/sys/class/dmi/id/*` với quyền `0400` — **chỉ root đọc được**. Container chạy `user: "0:0"`
-nên đọc đủ; tài khoản thường trên host thì không.
+Vân tay gồm hai nguồn: `dmi_uuid` và `board_serial`, cả hai đọc từ `/sys/class/dmi/id/*`
+với quyền `0400` — **chỉ root đọc được**. Container chạy `user: "0:0"` nên đọc được; tài
+khoản thường trên host thì **không**.
 
-Đo thật trên máy dev, cùng một máy, hai ngữ cảnh:
+Hệ quả: chạy ở host cho ra vân tay **rỗng hoặc thiếu**, tức một digest khác hẳn. Xin giấy
+phép bằng digest lấy ở host thì `modelsvc` từ chối với *"giấy phép không thuộc thiết bị
+này"*, và không có gì gợi ý nguyên nhân.
 
-| Chạy ở đâu | Nguồn đọc được | digest |
-|---|---|---|
-| host (user thường) | chỉ `gpu` | `201c6669…` |
-| **trong container** | `board_serial`, `dmi_uuid`, `gpu` | `de4a5ace…` |
-
-Hai digest **khác hẳn nhau**. Xin giấy phép bằng digest lấy ở host thì `modelsvc` sẽ từ
-chối với *"giấy phép không thuộc thiết bị này"*, và không có gì gợi ý nguyên nhân.
-
-Thêm một cái bẫy: máy dev có 2 GPU. Lệnh chạy ở host bắt được `GPU-0119232b` (index 1),
-còn container được cấp `CRANEOPS_GPU=0` nên thấy `GPU-b2bc31c4`. **`CRANEOPS_GPU` lúc lấy
-vân tay và lúc chạy phải giống nhau**, nếu không digest lệch dù cùng một máy.
+Vân tay **không** phụ thuộc `CRANEOPS_GPU`: UUID của GPU đã được bỏ khỏi vân tay có chủ
+đích, vì `ds_app` buộc phải chạy với `count: all` còn Triton thì pin GPU — hai cách cấp
+khác nhau sẽ cho hai digest khác nhau. Xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-014.
 
 ---
 
@@ -119,11 +113,12 @@ nó là ai cũng cấp được.
 
 ### Bước 2 — **trên máy đích**, lấy vân tay
 
-Phải chạy trong container, với đúng `CRANEOPS_GPU` sẽ dùng lúc chạy thật (xem §1.2):
+Phải chạy **trong container** (xem §1.2). `CRANEOPS_GPU` đặt gì cũng được — nó không vào
+vân tay.
 
 ```bash
 cp build/.env.triton.example build/.env.triton
-# CHỈ cần điền CRANEOPS_ASSETS và CRANEOPS_GPU cho bước này.
+# CHỈ cần điền CRANEOPS_ASSETS cho bước này.
 # CRANEOPS_LICENSE_KEY và CRANEOPS_MODEL_PASSWORD cứ để trống — lấy vân tay không cần chúng.
 
 docker compose --env-file build/.env.triton -f build/docker-compose.triton.yml \
@@ -136,13 +131,12 @@ Kết quả trông như:
 Vân tay thiết bị:
   board_serial   241247619300…
   dmi_uuid       a53bf5bc-fcb…
-  gpu            GPU-b2bc31c4…
 
-digest: de4a5ace66b63ca5d5051b83b45e26e9759afece499fc037a426f78d259bca42
+digest: ef829a5fda427e4117d851cf7fc6f32ae206638667fee4957079070778ee5f05
 ```
 
-✅ Phải thấy **đủ ba dòng**. Nếu có dòng `(thiếu: …)` thì bạn đang chạy sai ngữ cảnh — quay
-lại §1.2.
+✅ Phải thấy **cả hai dòng**, đặc biệt là `dmi_uuid`. Nếu có `(thiếu: dmi_uuid)` thì bạn
+đang chạy sai ngữ cảnh — quay lại §1.2.
 
 Gửi digest cho bên cấp phép. Digest là băm một chiều, không lộ thông tin máy.
 
@@ -169,7 +163,7 @@ một tín hiệu vận hành, không phải phiền toái.
 CRANEOPS_LICENSE_KEY=CO2.…          # từ §4 bước 3
 CRANEOPS_MODEL_PASSWORD=…           # mật khẩu giải mã .t7
 CRANEOPS_ASSETS=/đường/dẫn/assets   # thư mục chứa .t7 và char_dict
-CRANEOPS_GPU=0                      # PHẢI trùng lúc lấy vân tay
+CRANEOPS_GPU=0                      # chỉ giới hạn tài nguyên; KHÔNG vào vân tay
 TRITON_IMAGE=craneops-triton:dev
 ```
 
@@ -298,8 +292,8 @@ Các lỗi dưới đây đều đã gặp thật trong quá trình phát triể
 Vân tay lúc xin phép ≠ vân tay lúc chạy. Theo thứ tự khả năng:
 
 1. Lấy vân tay ở **host** thay vì trong container → thiếu `dmi_uuid`/`board_serial`. §1.2.
-2. `CRANEOPS_GPU` đã đổi giữa hai lần → GPU UUID khác.
-3. Đổi bo mạch chủ hoặc card. Phải xin giấy phép mới.
+2. Đổi bo mạch chủ. `dmi_uuid` đổi theo ⇒ phải xin giấy phép mới. (Đổi **card đồ hoạ**
+   thì không sao — GPU không nằm trong vân tay.)
 
 Chẩn đoán: lấy lại vân tay (§4 bước 2) và so digest với digest đã gửi đi.
 
