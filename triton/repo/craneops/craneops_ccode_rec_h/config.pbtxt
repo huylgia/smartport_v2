@@ -1,0 +1,68 @@
+# SVTR CTC, mã NGANG. 37 lớp = 1 blank (chỉ số 0) + 36 ký tự 0-9A-Z. dynamic_batching gom
+# crop của cả 5 camera ccode — nguồn tăng throughput lớn nhất của dự án. Bản *_folded:
+# input là **UINT8 NHWC**, pixel BGR THÔ, chuẩn hoá đã gấp vào đồ thị. FP32, KHÔNG phải
+# FP16: đã đo thấy FP16 làm MẤT ký tự mà điểm tin cậy lại cao hơn — xem
+# docs/DESIGN_NOTES.md DN-008.
+#
+# SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.
+
+name: "craneops_ccode_rec_h"
+platform: "tensorrt_plan"
+max_batch_size: 32
+
+input [
+  {
+    name: "x"
+    data_type: TYPE_UINT8
+    dims: [ 64, 256, 3 ]
+  }
+]
+
+output [
+  {
+    name: "save_infer_model/scale_0.tmp_0"
+    data_type: TYPE_FP32
+    dims: [ 25, 37 ]
+  }
+]
+
+# Gom nhiều lời gọi rời rạc thành một batch GPU.
+#
+# Vì sao 5 ms chứ không phải 0: mỗi camera gửi khoảng 5 khung/giây, tức một
+# khung mỗi 200 ms. Cửa sổ 0 (mặc định Triton tự suy khi thiếu config) chỉ gom
+# được request ĐÃ nằm sẵn trong hàng đợi, nên lời gọi từ các camera khác nhau
+# gần như không bao giờ được gộp. 5 ms là 2,5 % của một chu kỳ khung — không
+# đáng kể về độ trễ, nhưng đủ để các nguồn gọi chồng lấn nhau.
+#
+# Phần lớn lợi ích thật ra đến từ chỗ khác: mỗi lời gọi đã mang sẵn
+# TOÀN BỘ crop của một ROI (tới top_k=5 ảnh) thay vì từng ảnh một.
+# Con số 5 ms nên được chỉnh lại sau khi đo thật — xem docs/HARDWARE_BUDGET.md.
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 5000
+}
+
+# Chạy một cú giả lúc nạp: cú đầu tiên đắt gấp 3-6 lần (xem _warmup_block).
+model_warmup [
+  {
+    name: "khoi_dong"
+    batch_size: 1
+    inputs {
+      key: "x"
+      value {
+        data_type: TYPE_UINT8
+        dims: [ 64, 256, 3 ]
+        zero_data: true
+      }
+    }
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
+
+version_policy: { specific: { versions: [ 1 ] } }

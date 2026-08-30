@@ -1,0 +1,54 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Build artifacts ---
+build/dist/
+build/*.build/
+*.spec.bak
+
+# --- Secrets: KHÔNG BAO GIỜ commit ---
+# Oracle password, RTSP credential, MinIO key, license key — tất cả đi qua env.
+# Một secret đã commit thì coi như đã lộ, kể cả sau khi xoá: nó nằm lại trong lịch sử.
+.env
+.env.*
+!.env.*.example
+*.secret
+*.pem
+*.key
+
+# --- Model weights & assets nặng ---
+assets/
+*.t7
+*.onnx
+*.plan
+*.engine
+triton/repo/**/[0-9]*/
+
+# --- Dữ liệu runtime ---
+/var/
+recordings/
+evidence/
+logs/
+*.log
+*.db
+*.sqlite3
+
+# --- Golden dataset (ảnh/video lớn; chỉ commit file JSON baseline) ---
+tests/golden/data/**/*.jpg
+tests/golden/data/**/*.png
+tests/golden/data/**/*.mp4
+tests/golden/data/**/*.h265
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store

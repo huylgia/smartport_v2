@@ -1,0 +1,91 @@
+# Cấu hình cẩu GC03.
+#
+# ⚠️ ĐANG DỞ. Mới có phần đã đo/kiểm chứng được. Cấu trúc đầy đủ sẽ chốt khi
+# `common/config.py` xong (pydantic model là nguồn sự thật, schema JSON sinh từ đó).
+#
+# Toạ độ vùng là TƯƠNG ĐỐI [0..1], không phải pixel — xem docs/DESIGN_NOTES.md DN-002.
+
+crane_id: GC03
+berth_no: TS03 # mã bến, dùng để đối chiếu manifest Oracle
+num_lane: 3
+
+cameras:
+  # --- ccode: nhận dạng mã container ---------------------------------------
+  - id: 1
+    name: Mặt phải trước
+    role: ccode
+    rtsp_record: ${CAM01_RTSP}
+    # TODO ocr_rois: 8 vùng OCR tĩnh cho camera này (xem docs/ARCHITECTURE.md)
+
+  - id: 4
+    name: Mặt trước - Lane 2
+    role: ccode
+    rtsp_record: ${CAM04_RTSP}
+
+  - id: 6
+    name: Mặt trước - Lane 1
+    role: ccode
+    rtsp_record: ${CAM06_RTSP}
+
+  - id: 7
+    name: Cửa sau - Lane 1
+    role: ccode
+    rtsp_record: ${CAM07_RTSP}
+
+  - id: 8
+    name: Cửa sau - Lane 2
+    role: ccode
+    rtsp_record: ${CAM08_RTSP}
+
+  # --- tcode: nhận dạng số đầu kéo ------------------------------------------
+  # ⚠️ Vùng lane của camera 3 và camera 10 có chiều NGƯỢC NHAU — hai camera nhìn cùng
+  # khu vực từ hai hướng. Đây là lý do vùng phải khai theo từng camera thay vì suy ra từ
+  # một bộ đường phân chia chung (xem internal/pkg/geometry.py).
+  #
+  # Đã kiểm chứng: 18849/18849 điểm lưới cho phán quyết lane đúng như mong đợi.
+  - id: 3
+    name: Đầu kéo - Lane 2
+    role: tcode
+    rtsp_record: ${CAM03_RTSP}
+    lane_zones:
+      "1": [[0.44531, 0.0], [0.0, 0.0], [0.0, 1.0], [0.41065, 1.0]]
+      "2": [[0.41065, 1.0], [0.64964, 1.0], [0.60619, 0.0], [0.44531, 0.0]]
+      "3": [[0.64964, 1.0], [1.0, 1.0], [1.0, 0.0], [0.60619, 0.0]]
+
+  - id: 5
+    name: Đầu kéo - Lane 1
+    role: tcode
+    rtsp_record: ${CAM05_RTSP}
+    lane_zones:
+      "1": [[0.56953, 0.0], [0.0, 0.0], [0.0, 1.0], [0.58215, 1.0]]
+      "2": [[0.58215, 1.0], [0.80983, 1.0], [0.76322, 0.0], [0.56953, 0.0]]
+      "3": [[0.80983, 1.0], [1.0, 1.0], [1.0, 0.0], [0.76322, 0.0]]
+
+  # --- crane: nhìn xuống khu vực dưới cẩu -----------------------------------
+  - id: 10
+    name: Trần container
+    role: crane
+    rtsp_record: ${CAM10_RTSP}
+    lane_zones:
+      "1": [[1.0, 0.50428], [1.0, 0.0], [0.0, 0.0], [0.0, 0.48749]]
+      "2": [[0.0, 0.48749], [0.0, 0.73611], [1.0, 0.77388], [1.0, 0.50428]]
+      "3": [[0.0, 0.73611], [0.0, 1.0], [1.0, 1.0], [1.0, 0.77388]]
+    # KHÔNG có truck_lines: slot container xác định bằng khoảng cách container <-> đầu
+    # xe, không bằng dải dọc mà đầu xe rơi vào. Xem docs/DESIGN_NOTES.md DN-001.
+
+  # --- bottom: soi đáy, không chạy model ------------------------------------
+  - id: 9
+    name: Soi đáy
+    role: bottom
+    rtsp_record: ${CAM09_RTSP}
+
+  # --- chỉ ghi hình, không xử lý --------------------------------------------
+  # Chỉ góp một mặt vào bộ ảnh 6 mặt — không chạy model, và KHÔNG decode.
+  # Xem CameraRole.EVIDENCE_ONLY trong common/enum.py.
+  - id: 2
+    name: Hông trái - Trước
+    role: evidence_only
+    rtsp_record: ${CAM02_RTSP}
+# Nguồn thật đo 2026-08-29: cả 10 camera đều 2688x1520 @ 30 fps HEVC, GOP 50, IPPP.
+# Lưu ý: `resolution`/`fps` ở tầng camera là ĐÍCH xử lý, không phải thuộc tính nguồn.
+# Chi tiết + ngân sách NVDEC: docs/HARDWARE_BUDGET.md §2.

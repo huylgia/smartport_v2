@@ -1,0 +1,138 @@
+# Triton Inference Server + bước chuẩn bị model có kiểm bản quyền.
+#
+# KHÔNG dùng systemd: môi trường triển khai không có quyền sudo, nên mọi thứ chạy qua
+# Docker. Xem docs/DESIGN_NOTES.md DN-004.
+#
+#   docker compose -f build/docker-compose.triton.yml --env-file .env up -d
+#
+# `modelsvc` là service khởi tạo: kiểm khoá gắn phần cứng, giải mã .t7, dựng engine
+# TensorRT vào volume dùng chung, rồi xoá bản rõ. `triton` chỉ chạy sau khi nó thoát 0
+# (`service_completed_successfully`), nên Triton không bao giờ khởi động với model chưa
+# được cấp phép.
+
+name: craneops
+
+services:
+  # --- chuẩn bị model: license -> giải mã -> engine -> xoá bản rõ -------------
+  modelsvc:
+    image: ${TRITON_IMAGE:-craneops-triton:dev}
+    # Chạy như root TRONG container để đọc được /sys/class/dmi/id/product_serial (0400).
+    # Đây cũng là lý do khoá phải được cấp cho ngữ cảnh này, không phải cho host —
+    # hai nơi đọc ra hai serial khác nhau. Xem internal/pkg/license.py.
+    user: "0:0"
+    environment:
+      CRANEOPS_LICENSE_KEY: ${CRANEOPS_LICENSE_KEY:?thiếu khoá bản quyền}
+      CRANEOPS_MODEL_PASSWORD: ${CRANEOPS_MODEL_PASSWORD:?thiếu mật khẩu giải mã model}
+      # Trong container, assets được mount ở /assets — khác đường dẫn trên host.
+      CRANEOPS_ASSETS: /assets
+    volumes:
+      # Model đã mã hoá, chỉ đọc.
+      - ${CRANEOPS_ASSETS:?thiếu đường dẫn assets}:/assets:ro
+      # Mã nguồn, chỉ đọc.
+      - ..:/app:ro
+      # Engine TensorRT — volume THƯỜNG, giữ qua các lần restart.
+      - models:/models
+    working_dir: /app
+    # ⚠️ PHẢI là `tmpfs:`, KHÔNG phải một mục trong `volumes:`.
+    #
+    # Bản đầu viết `- /dev/shm` trong `volumes:`. Docker hiểu đó là **anonymous volume**
+    # và gắn nó bằng ext4 trên ổ đĩa, THAY THẾ tmpfs mặc định — kiểm chứng được bằng
+    # `docker run --rm -v /dev/shm --entrypoint sh <image> -c "df -h /dev/shm"`, nó chỉ ra
+    # /dev/nvme0n1p2. Nghĩa là bản rõ ONNX đã được ghi xuống ĐĨA suốt thời gian đó, trái
+    # hẳn với bất biến mà DN-004 khẳng định. `finally: unlink` có xoá file, nhưng block đã
+    # unlink trên ext4 vẫn khôi phục được cho tới khi bị ghi đè.
+    #
+    # 512m: file ONNX lớn nhất là 25 MB (rec), dư nhiều lần.
+    tmpfs:
+      - /dev/shm:size=512m
+    command: >
+      python3 -m triton.modelsvc.main --repo /models
+    # ⚠️ Tập GPU cấp ở đây PHẢI trùng với lúc lấy vân tay cấp phép — UUID của GPU nằm
+    # trong vân tay, nên "device=0" và "all" cho hai vân tay khác nhau.
+    # Xem internal/pkg/fingerprint.py.
+    deploy:
+      resources:
+        limits:
+          cpus: "${MODELSVC_CPUS:-4}"
+          # 12g, KHÔNG phải 4g: dựng engine cho craneops_ccode_rec_* từng bị SIGKILL
+          # (OOM) ở 4g. Giá trị dự phòng phải là giá trị CHẠY ĐƯỢC — nếu không, ai
+          # chạy compose mà quên --env-file sẽ dính lại đúng lỗi đó.
+          memory: ${MODELSVC_MEMORY:-12g}
+          pids: 512
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${CRANEOPS_GPU:-0}"]
+              capabilities: [gpu]
+    restart: "no"
+
+  # --- Triton ----------------------------------------------------------------
+  triton:
+    image: ${TRITON_IMAGE:-craneops-triton:dev}
+    depends_on:
+      modelsvc:
+        condition: service_completed_successfully
+    environment:
+      # Python backend chạy interpreter riêng; mã nguồn nằm ở /app, không phải cwd.
+      CRANEOPS_APP_ROOT: /app
+    volumes:
+      - models:/models:ro
+      # Model Python backend (BLS mã container) import internal/pkg từ đây. Model
+      # TensorRT thì không cần — chúng chỉ là file .plan.
+      - ..:/app:ro
+      # Bảng ký tự cho giải mã CTC (assets/char_dict/char_dict.txt).
+      - ${CRANEOPS_ASSETS:?thiếu đường dẫn assets}:/assets:ro
+    command: >
+      tritonserver
+        --model-repository=/models
+        --strict-model-config=false
+        --log-verbose=0
+        --cuda-memory-pool-byte-size=0:${TRITON_CUDA_POOL:-2147483648}
+        --pinned-memory-pool-byte-size=${TRITON_PINNED_POOL:-268435456}
+    # Cổng cấu hình được: máy dùng chung, 8000-8002 thường đã bị dịch vụ khác chiếm.
+    ports:
+      - "${TRITON_HTTP_PORT:-18000}:8000" # HTTP
+      - "${TRITON_GRPC_PORT:-18001}:8001" # gRPC — ds_app gọi vào đây
+      - "${TRITON_METRICS_PORT:-18002}:8002" # metrics Prometheus
+    shm_size: 1gb
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Giới hạn tài nguyên: máy dùng chung với người khác.
+    #   cpus/memory : Docker cưỡng chế
+    #   VRAM        : Docker KHÔNG giới hạn cứng được, nên chặn ở tầng Triton bằng
+    #                 --cuda-memory-pool-byte-size ở trên. Ngân sách: HARDWARE_BUDGET §3.
+    deploy:
+      resources:
+        limits:
+          cpus: "${TRITON_CPUS:-8}"
+          memory: ${TRITON_MEMORY:-8g}
+          pids: 1024
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${CRANEOPS_GPU:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 15s
+      timeout: 5s
+      # Dựng engine cho 7 model mất vài phút ở lần đầu; lần sau modelsvc dùng lại engine cũ
+      # nếu nó mới hơn file .t7 nguồn.
+      start_period: 300s
+      retries: 5
+    restart: unless-stopped
+    networks: [craneops]
+
+volumes:
+  # Volume THƯỜNG, không phải tmpfs. Dựng 6 engine mất ~9 phút; nếu để tmpfs thì mỗi lần
+  # `compose down` là mất sạch và phải dựng lại — cơ chế dùng lại engine trong
+  # modelsvc._plan_is_fresh() sẽ không bao giờ có tác dụng.
+  #
+  # Bản rõ ONNX vẫn không chạm đĩa: modelsvc ghi nó vào /dev/shm (tmpfs) rồi xoá ngay.
+  # File .plan ở đây là engine TensorRT, không phải ONNX.
+  models:
+
+networks:
+  craneops:
+    name: craneops

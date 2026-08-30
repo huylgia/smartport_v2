@@ -1,0 +1,69 @@
+# FastViT-T8 phân loại số đầu kéo, 54 lớp, NCHW, batch động. Input BGR THÔ [0,255] — chuẩn
+# hoá ImageNet VÀ phép đảo kênh đều đã gấp vào model (DN-003 + DN-012). DeepStream:
+# net-scale-factor=1.0, model-color-format=1. Sinh bằng: tools/export_headcode_cls.py
+# --nchw --fold-preprocess. KHÔNG dùng truckHeadCls_150125.t7 trong assets/ — chưa hợp
+# nhất, 3314 node Conv. Xem docs/DESIGN_NOTES.md DN-003.
+#
+# SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.
+
+name: "craneops_headcode_cls"
+platform: "tensorrt_plan"
+max_batch_size: 16
+
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [ 3, 224, 224 ]
+  }
+]
+
+output [
+  {
+    name: "head"
+    data_type: TYPE_FP32
+    dims: [ 54 ]
+  }
+]
+
+# Gom nhiều lời gọi rời rạc thành một batch GPU.
+#
+# Vì sao 5 ms chứ không phải 0: mỗi camera gửi khoảng 5 khung/giây, tức một
+# khung mỗi 200 ms. Cửa sổ 0 (mặc định Triton tự suy khi thiếu config) chỉ gom
+# được request ĐÃ nằm sẵn trong hàng đợi, nên lời gọi từ các camera khác nhau
+# gần như không bao giờ được gộp. 5 ms là 2,5 % của một chu kỳ khung — không
+# đáng kể về độ trễ, nhưng đủ để các nguồn gọi chồng lấn nhau.
+#
+# Nguồn gọi ở đây là nvinferserver của DeepStream, không phải BLS: nó
+# đã gom sẵn các object của một khung, nên cửa sổ này chỉ còn việc gộp
+# tiếp giữa các camera cùng vai trò.
+# Con số 5 ms nên được chỉnh lại sau khi đo thật — xem docs/HARDWARE_BUDGET.md.
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16 ]
+  max_queue_delay_microseconds: 5000
+}
+
+# Chạy một cú giả lúc nạp: cú đầu tiên đắt gấp 3-6 lần (xem _warmup_block).
+model_warmup [
+  {
+    name: "khoi_dong"
+    batch_size: 1
+    inputs {
+      key: "input"
+      value {
+        data_type: TYPE_FP32
+        dims: [ 3, 224, 224 ]
+        zero_data: true
+      }
+    }
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
+
+version_policy: { specific: { versions: [ 1 ] } }

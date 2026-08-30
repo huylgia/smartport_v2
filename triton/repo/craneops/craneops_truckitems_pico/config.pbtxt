@@ -1,0 +1,58 @@
+# PGIE nhánh crane. 2 lớp: đầu kéo + container. Bản *_folded: nhận pixel BGR THÔ [0,255] —
+# cả phép chia 255 lẫn phép đảo kênh RGB đã nằm trong đồ thị. DeepStream cấu hình
+# net-scale-factor=1.0, model-color-format=1 (BGR), không offset. Xem DN-012.
+#
+# SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.
+
+name: "craneops_truckitems_pico"
+platform: "tensorrt_plan"
+max_batch_size: 4
+
+input [
+  {
+    name: "image"
+    data_type: TYPE_FP32
+    dims: [ 3, 416, 416 ]
+  }
+]
+
+output [
+  {
+    name: "tmp_16"
+    data_type: TYPE_FP32
+    dims: [ 3598, 4 ]
+  }
+]
+
+output [
+  {
+    name: "concat_8.tmp_0"
+    data_type: TYPE_FP32
+    dims: [ 2, 3598 ]
+  }
+]
+
+# Chạy một cú giả lúc nạp: cú đầu tiên đắt gấp 3-6 lần (xem _warmup_block).
+model_warmup [
+  {
+    name: "khoi_dong"
+    batch_size: 1
+    inputs {
+      key: "image"
+      value {
+        data_type: TYPE_FP32
+        dims: [ 3, 416, 416 ]
+        zero_data: true
+      }
+    }
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
+
+version_policy: { specific: { versions: [ 1 ] } }
