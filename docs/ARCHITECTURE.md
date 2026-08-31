@@ -145,4 +145,5 @@ chỉ đổi config, không đổi code.
 - [RULES.md](RULES.md) — đặc tả 8 rule
 - [USE_CASES.md](USE_CASES.md) — quy trình nghiệp vụ nhập/xuất, map sang rule
 - [DESIGN_NOTES.md](DESIGN_NOTES.md) — các quyết định đã chốt và lý do
-- [RUNBOOK.md](RUNBOOK.md) — triển khai và vận hành Triton
+- [RUNBOOK_TRITON.md](RUNBOOK_TRITON.md) — triển khai và vận hành Triton
+- [RUNBOOK_DS_APP.md](RUNBOOK_DS_APP.md) — triển khai và vận hành ds_app

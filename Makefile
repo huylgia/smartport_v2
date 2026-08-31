@@ -116,3 +116,7 @@ ds-doctor: ## Kiểm môi trường ds_app — chạy TRƯỚC khi nghi ngờ th
 .PHONY: record
 record: ## Ghi hình một camera, KHÔNG suy luận (CAM=1 DUR=60 META=1)
 	CAM=$(CAM) DUR=$(DUR) META=$(META) $(DS_COMPOSE) run --rm record
+
+.PHONY: record-clean
+record-clean: ## Xoá segment đã ghi. Chạy trong container vì file thuộc root.
+	$(DS_COMPOSE) run --rm --entrypoint sh record -c 'rm -rf /rec/*'
