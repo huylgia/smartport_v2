@@ -6,6 +6,7 @@
 #: up             | Kiểm license → giải mã → dựng engine → chạy Triton
 #: down           | Dừng. Engine nằm trong volume craneops_models, KHÔNG mất
 #: status         | Model nào đang READY
+#: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
 #: logs           | 40 dòng log cuối của modelsvc và Triton
 #: bench          | Đo hiệu năng (HARDWARE_BUDGET §6.1) — cần uv
 #: accuracy       | Đo độ chính xác so với NHÃN (§6.2) — cần uv
@@ -47,6 +48,44 @@ print(f'\n  {ready}/{len(models)} READY')
 sys.exit(0 if ready == len(models) and models else 1)"
 }
 
+# Kiểm những thứ làm `up` hỏng SAU 9 phút dựng engine — biết trước rẻ hơn nhiều.
+cmd_doctor() {
+  local bad=0
+  check() {  # check <nhãn> <giá trị> <lý do khi trống>
+    if [ -n "$2" ]; then row "✅ $1" "$2" 26
+    else row "❌ $1" "$3" 26; bad=1; fi
+  }
+
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+    && check "docker" "chạy được" "" || check "docker" "" "không chạy được (thiếu quyền?)"
+
+  if [ -f "$CRANEOPS_ROOT/$ENV_FILE" ]; then
+    check "$ENV_FILE" "có" ""
+    # Ba biến này thiếu thì modelsvc thoát, nhưng chỉ sau khi image đã kéo xong.
+    for k in CRANEOPS_LICENSE_KEY CRANEOPS_MODEL_PASSWORD CRANEOPS_ASSETS; do
+      check "$k" "$( [ -n "$(env_value "$ENV_FILE" "$k")" ] && echo "có" )" "trống"
+    done
+    local assets; assets="$(env_value "$ENV_FILE" CRANEOPS_ASSETS)"
+    [ -n "$assets" ] && check "thư mục assets" \
+      "$( [ -d "$assets" ] && echo "$assets" )" "$assets không tồn tại"
+  else
+    check "$ENV_FILE" "" "thiếu — cp build/.env.triton.example $ENV_FILE"
+  fi
+
+  # GPU: vân tay cấp phép KHÔNG phụ thuộc GPU (xem DN-014), nhưng dựng engine thì có.
+  check "GPU trong container" \
+    "$(docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 \
+        nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)" \
+    "docker không thấy GPU — thiếu NVIDIA Container Toolkit?"
+
+  check "image craneops-triton" \
+    "$(docker image inspect craneops-triton:dev --format '{{.Id}}' 2>/dev/null | cut -c8-19)" \
+    "chưa dựng — craneops-triton build"
+
+  [ "$bad" -eq 0 ] || die "môi trường chưa sẵn sàng"
+  note "môi trường sẵn sàng"
+}
+
 cmd_bench() {
   command -v uv >/dev/null || die "bench cần uv (lệnh đo, chỉ chạy trên máy dev)"
   cd "$CRANEOPS_ROOT" && uv run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --all \
@@ -62,7 +101,7 @@ cmd_accuracy() {
 }
 
 case "${1:-}" in
-  build|up|down|status|logs|bench|accuracy) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|bench|accuracy) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-triton <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac

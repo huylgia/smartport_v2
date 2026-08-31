@@ -75,6 +75,19 @@ env_value() {
   printf '%s' "${v:-$fallback}"
 }
 
+# ─── Hợp đồng lõi ───────────────────────────────────────────────────────────────────
+# MỌI `craneops-<service>` phải cài đủ những lệnh này. Đây là điều làm `craneops <lệnh>`
+# có nghĩa: hỏi cả hệ thống một câu thì mọi service đều **trả lời được**.
+#
+# "Chưa áp dụng" vẫn phải là một câu trả lời, không phải sự im lặng. Bản trước bỏ qua
+# service nào không có lệnh, và "bỏ qua" thì không phân biệt được ba tình huống hoàn toàn
+# khác nhau: chưa xây, đang tắt, và hỏng. Service phải nói ra mình đang ở đâu.
+#
+# Lệnh riêng (bench, accuracy, record, clean) nằm ngoài hợp đồng — chúng chỉ có nghĩa với
+# một service, nên `craneops` không fan-out chúng.
+CORE_COMMANDS=(build up down status logs doctor)
+readonly CORE_COMMANDS
+
 # Tên lệnh của một script, mỗi dòng một cái. KHÔNG màu, KHÔNG căn lề: đây là bản cho MÁY
 # đọc.
 #
@@ -92,6 +105,18 @@ print_commands() {
   grep -E '^\s*#:' "$script" | sed -E 's/^\s*#:\s?//' | while IFS='|' read -r cmd desc; do
     printf '  %s%-16s%s %s\n' "$C_BOLD" "$cmd" "$C_OFF" "$desc"
   done
+}
+
+# Một dòng "nhãn  giá trị" căn lề.
+#
+# ⚠️ Không dùng `printf '%-24s'`: nó đếm BYTE, còn nhãn tiếng Việt là UTF-8 nhiều byte
+# ("container đang chạy" = 19 ký tự nhưng 22 byte) nên cột bị ăn mất và giá trị dính liền
+# nhãn. `${#s}` của bash đếm KÝ TỰ khi locale là UTF-8, nên tự chèn khoảng trắng.
+row() {
+  local label="$1" value="$2" width="${3:-22}" pad="" n
+  n=$((width - ${#label}))
+  [ "$n" -gt 0 ] && printf -v pad '%*s' "$n" ''
+  printf '  %s%s%s\n' "$label" "$pad" "$value"
 }
 
 # Từ chối lệnh không biết, kèm danh sách hợp lệ — gõ sai lệnh không được im lặng không làm gì.

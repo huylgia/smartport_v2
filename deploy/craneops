@@ -8,6 +8,7 @@
 #: up             | Chạy MỌI service (triton trước, ds_app sau)
 #: down           | Dừng MỌI service
 #: status         | Trạng thái MỌI service
+#: logs           | Log gần nhất của MỌI service
 #: doctor         | Kiểm môi trường MỌI service
 #: services       | Liệt kê service và lệnh riêng của chúng
 #: install        | Đặt craneops* lên PATH để gọi từ thư mục bất kỳ
@@ -34,11 +35,13 @@ run_all() {
   [ "$action" = "down" ] && order=(ds triton)
 
   for svc in "${order[@]}"; do
+    # Thiếu lệnh lõi là LỖI, không phải chuyện bình thường: hợp đồng ở craneops-lib.sh
+    # buộc mọi service phải trả lời được. Bản trước bỏ qua im lặng, và khi `supports()`
+    # hỏng thì `craneops status` bỏ qua CẢ HAI service mà trông vẫn như hoạt động bình
+    # thường. Hỏng ồn ào thì còn sửa được.
     if ! supports "$svc" "$action"; then
-      # Bỏ qua tường minh, không tính là hỏng. ds_app chưa có service chạy dài nên chưa có
-      # `up`/`down`; im lặng bỏ qua thì người dùng tưởng nó đã chạy.
-      printf '\n%s━━ %s: bỏ qua (không có lệnh %s) ━━%s\n' "$C_DIM" "$svc" "$action" "$C_OFF"
-      continue
+      die "craneops-$svc thiếu lệnh lõi '$action'.
+   Hợp đồng lõi: ${CORE_COMMANDS[*]}  (xem CORE_COMMANDS trong deploy/craneops-lib.sh)"
     fi
     printf '\n%s━━ %s: %s ━━%s\n' "$C_BOLD" "$svc" "$action" "$C_OFF"
     ran=$((ran + 1))
@@ -51,20 +54,27 @@ run_all() {
   done
 
   printf '\n'
-  [ "$ran" -gt 0 ] || die "không service nào có lệnh '$action'"
   [ "$failed" -eq 0 ] || die "$failed/$ran service thất bại ở lệnh '$action'"
   note "$ran/$ran service OK"
 }
 
 cmd_services() {
-  printf 'Service:\n'
+  printf 'Service: %s\n\n' "${SERVICES[*]}"
+  printf 'Lệnh LÕI — mọi service đều trả lời được, nên `craneops <lệnh>` hỏi được cả hệ thống:\n'
+  printf '  %s%s%s\n\n' "$C_BOLD" "${CORE_COMMANDS[*]}" "$C_OFF"
+
   for svc in "${SERVICES[@]}"; do
-    printf '  %s%-18s%s craneops-%s <lệnh>\n' "$C_BOLD" "$svc" "$C_OFF" "$svc"
-  done
-  printf '\nLệnh riêng của từng service:\n'
-  for svc in "${SERVICES[@]}"; do
-    printf '\n  %scraneops-%s%s\n' "$C_BOLD" "$svc" "$C_OFF"
+    printf '%scraneops-%s%s\n' "$C_BOLD" "$svc" "$C_OFF"
+    # Đánh dấu lệnh nào ngoài hợp đồng: chúng chỉ có nghĩa với service này, `craneops`
+    # không fan-out chúng — biết trước đỡ phải thử rồi mới biết.
+    local extra=""
+    while read -r c; do
+      printf '%s\n' "${CORE_COMMANDS[@]}" | grep -qxF "$c" || extra="$extra $c"
+    done < <(list_commands "$BIN/craneops-$svc")
     print_commands "$BIN/craneops-$svc" | sed 's/^/  /'
+    [ -n "$extra" ] && printf '  %s(riêng của %s:%s — gọi trực tiếp craneops-%s)%s\n' \
+      "$C_DIM" "$svc" "$extra" "$svc" "$C_OFF"
+    printf '\n'
   done
 }
 
@@ -120,7 +130,7 @@ cmd_uninstall() {
 }
 
 case "${1:-}" in
-  build|up|down|status|doctor) run_all "$1" ;;
+  build|up|down|status|logs|doctor) run_all "$1" ;;
   services) cmd_services ;;
   install) cmd_install ;;
   uninstall) cmd_uninstall ;;

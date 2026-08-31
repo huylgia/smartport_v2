@@ -27,7 +27,7 @@ Vận hành, trên máy dev lẫn máy đích (chỉ cần Docker):
 
 craneops build             # dựng image mọi microservice
 craneops up                # license → giải mã model → build engine → serve
-craneops status            # 9/9 model READY?
+craneops status            # 9/9 model READY? ds_app ghi tới đâu?
 craneops-ds record --cam 1 --duration 60      # ghi thử một camera
 ```
 

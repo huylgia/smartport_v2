@@ -29,10 +29,18 @@ trên máy đích, nơi chỉ có Docker — không cần `uv`, không cần ven
 ```
 
 ```bash
-craneops          # fan-out mọi microservice: build | up | down | status | doctor
+craneops          # hỏi MỌI microservice cùng một câu
 craneops-triton   # chỉ Triton
 craneops-ds       # chỉ ds_app
 ```
+
+**Hợp đồng lõi.** Mọi service cài đủ sáu lệnh `build`, `up`, `down`, `status`, `logs`,
+`doctor`, nên `craneops <lệnh>` luôn hỏi được cả hệ thống. "Chưa áp dụng" vẫn phải là một
+câu trả lời: `craneops-ds up` nói thẳng ds_app chưa có service chạy dài và chỉ sang
+`record`, chứ không im lặng bỏ qua — im lặng thì không phân biệt được *chưa xây*, *đang
+tắt* và *hỏng*. Lệnh riêng của từng service (`bench`, `accuracy`, `record`, `clean`) nằm
+ngoài hợp đồng và không được fan-out; `craneops services` chỉ rõ cái nào là cái nào.
+Hợp đồng khai ở `CORE_COMMANDS` trong `deploy/craneops-lib.sh` và có test khoá lại.
 
 Gõ tên lệnh không kèm gì để xem danh sách. `install` tạo **symlink**, không copy — nên
 `git pull` là cập nhật xong, không phải cài lại. Muốn dùng chung cho mọi user trên máy thì

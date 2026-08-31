@@ -26,6 +26,14 @@ SERVICES = ("triton", "ds")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def _core_commands() -> list[str]:
+    """Hợp đồng lõi, đọc từ ``craneops-lib.sh`` — không chép lại danh sách vào test."""
+    text = (DEPLOY / "craneops-lib.sh").read_text(encoding="utf-8")
+    match = re.search(r"^CORE_COMMANDS=\(([^)]*)\)", text, re.M)
+    assert match, "không tìm thấy CORE_COMMANDS trong craneops-lib.sh"
+    return match.group(1).split()
+
+
 def _run(argv: list[str], *, tty: bool) -> str:
     """Chạy một lệnh, ép stdout là terminal hay pipe tuỳ ``tty``."""
     if not tty:
@@ -65,6 +73,33 @@ def test_help_lists_every_declared_command(script: str) -> None:
     shown = _run([str(DEPLOY / script)], tty=False)
     for cmd in _declared(script):
         assert re.search(rf"^\s+{re.escape(cmd)}\s", shown, re.M), f"{script}: thiếu {cmd}"
+
+
+@pytest.mark.parametrize("service", SERVICES)
+def test_every_service_implements_the_core_contract(service: str) -> None:
+    """Mọi service phải cài đủ lệnh lõi — đó là thứ làm `craneops <lệnh>` có nghĩa.
+
+    Không có test này thì thêm một service mới mà quên `status` sẽ chỉ lộ ra lúc vận hành,
+    và lộ dưới dạng khó hiểu nhất: `craneops status` dừng giữa chừng ở service đó.
+    """
+    script = f"craneops-{service}"
+    missing = sorted(set(_core_commands()) - _declared(script))
+    assert not missing, f"{script} thiếu lệnh lõi: {missing}"
+
+    # Khai trong bảng `#:` mà quên nhánh `case` thì lệnh vẫn "có" nhưng chạy ra lỗi cú pháp.
+    body = (DEPLOY / script).read_text(encoding="utf-8")
+    for cmd in _core_commands():
+        assert re.search(rf"^cmd_{cmd}\(\)", body, re.M), (
+            f"{script}: khai {cmd} nhưng thiếu cmd_{cmd}()"
+        )
+
+
+def test_dispatcher_fans_out_exactly_the_core_contract() -> None:
+    """`craneops` phải fan-out ĐÚNG bộ lõi — không thiếu, và không hứa thứ nó không có."""
+    fanned = _declared("craneops") - {"services", "install", "uninstall"}
+    assert fanned == set(_core_commands()), (
+        f"craneops fan-out {sorted(fanned)} nhưng hợp đồng lõi là {sorted(_core_commands())}"
+    )
 
 
 @pytest.mark.parametrize(("service", "command"), [("triton", "status"), ("ds", "doctor")])

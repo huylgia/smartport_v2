@@ -3,6 +3,10 @@
 # Runbook: docs/RUNBOOK_DS_APP.md
 #
 #: build          | Dựng image (DeepStream + pyds)
+#: up             | (chưa có service chạy dài — xem `record`)
+#: down           | Dừng mọi container ds_app còn sót
+#: status         | Container đang chạy và tình trạng thư mục ghi
+#: logs           | 40 dòng log cuối
 #: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
 #: record         | Ghi hình một camera, KHÔNG suy luận
 #: clean          | Xoá segment đã ghi
@@ -17,6 +21,51 @@ compose() {
 
 cmd_build() { require_docker; compose build record; }
 cmd_doctor() { require_docker; compose run --rm doctor; }
+cmd_logs() { require_docker; compose logs --tail 40; }
+
+# `up`/`down` tồn tại vì hợp đồng lõi đòi mọi service trả lời được. Chúng KHÔNG giả vờ đã
+# chạy: `up` nói thẳng ds_app chưa có service chạy dài và chỉ sang lệnh thật.
+cmd_up() {
+  note "ds_app chưa có service chạy dài: nhánh model (nvstreammux → nvinferserver → Kafka)"
+  note "là Phase 3b. Ghi hình chạy theo lệnh, không theo daemon:"
+  note "    craneops-ds record --cam 1 --duration 0"
+  # Thoát 0: không có gì hỏng cả. Thoát khác 0 ở đây sẽ làm `craneops up` đỏ mỗi lần chạy,
+  # và một lỗi luôn đỏ là một lỗi không ai còn đọc.
+}
+
+cmd_down() {
+  require_docker
+  # Vẫn có việc để làm: `record --duration 0` bị Ctrl-C có thể để lại container.
+  compose down --remove-orphans
+}
+
+cmd_status() {
+  require_docker
+  local running rec_dir count newest
+  running="$(compose ps --services --filter status=running 2>/dev/null | grep -c . || true)"
+  row "container đang chạy" "$running"
+
+  # Trạng thái thật của ds_app lúc này nằm ở thư mục ghi, không ở container: `record` là
+  # lệnh chạy rồi thoát, nên "0 container" là bình thường chứ không phải hỏng.
+  #
+  # Gốc phân giải là build/, KHÔNG phải gốc repo: docker compose tính đường dẫn tương đối
+  # theo thư mục chứa file compose, và mặc định `../.rec` nghĩa là <repo>/.rec.
+  rec_dir="$(cd "$CRANEOPS_ROOT/build" && cd "$(env_value "$ENV_FILE" CRANEOPS_REC_DIR ../.rec)" 2>/dev/null && pwd)"
+  if [ -n "$rec_dir" ]; then
+    count="$(find "$rec_dir" -name '*.mp4' 2>/dev/null | grep -c . || true)"
+    row "thư mục ghi" "$rec_dir ($count đoạn)"
+    newest="$(find "$rec_dir" -name '*.mp4' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1)"
+    if [ -n "$newest" ]; then
+      row "đoạn mới nhất" "$(date -d "@${newest%% *}" '+%F %T')  $(basename "${newest#* }")"
+    fi
+  else
+    row "thư mục ghi" "chưa tạo (chưa ghi lần nào)"
+  fi
+  # ⚠️ BẮT BUỘC: giá trị trả về của hàm bash là của lệnh CUỐI. Không có dòng này thì một
+  # `[ -n "$newest" ]` rỗng làm `status` trả 1 và `craneops` báo "ds: status thất bại"
+  # trong khi không có gì hỏng cả.
+  return 0
+}
 
 cmd_record() {
   local cam=1 dur=60 seg="" meta=""
@@ -47,7 +96,7 @@ cmd_clean() {
 }
 
 case "${1:-}" in
-  build|doctor|record|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|record|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-ds <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac
