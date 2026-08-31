@@ -32,9 +32,39 @@ require_env() {
    rồi điền các giá trị trong đó."
 }
 
+CRANEOPS_NETWORK=craneops
+readonly CRANEOPS_NETWORK
+
+# Tạo network dùng chung nếu chưa có.
+#
+# Hai compose khai nó là `external` chứ không cùng khai `name:`: khai trùng tên thì compose
+# cảnh báo "exists but was not created for project ..." ở MỌI lệnh, và `down` của project
+# này sẽ thử xoá network mà project kia đang dùng. External thì quyền sở hữu rõ ràng —
+# nó thuộc về bộ lệnh, không thuộc về service nào.
+ensure_network() {
+  docker network inspect "$CRANEOPS_NETWORK" >/dev/null 2>&1 && return 0
+  local err
+  if ! err="$(docker network create "$CRANEOPS_NETWORK" 2>&1)"; then
+    # Trên máy dùng chung, nguyên nhân hay gặp nhất là hết dải địa chỉ vì network của
+    # NGƯỜI KHÁC — thứ mình không được phép dọn. Nói rõ để không ai đi xoá nhầm.
+    case "$err" in
+      *"address pools"*) die "hết dải địa chỉ Docker — không tạo được network $CRANEOPS_NETWORK.
+   Máy đang có $(docker network ls -q | wc -l) network. Xem của mình là những cái nào:
+       docker network ls --filter label=com.docker.compose.project
+   rồi dọn network compose CŨ CỦA MÌNH:  docker network prune
+   ⚠️ Đừng xoá network của người khác trên máy dùng chung." ;;
+      *) die "không tạo được network $CRANEOPS_NETWORK: $err" ;;
+    esac
+  fi
+  note "đã tạo network $CRANEOPS_NETWORK"
+}
+
 require_docker() {
   command -v docker >/dev/null 2>&1 || die "không tìm thấy docker"
   docker info >/dev/null 2>&1 || die "docker không chạy được (thiếu quyền? thử: docker info)"
+  # Network là external nên phải tồn tại trước khi compose chạy. Gắn ở đây để mọi lệnh
+  # dùng Docker đều được lo, không phải nhớ gọi riêng ở từng chỗ.
+  ensure_network
 }
 
 # Đọc một biến từ file env, trả về mặc định nếu không có.

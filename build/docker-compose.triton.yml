@@ -149,5 +149,9 @@ volumes:
   models:
 
 networks:
+  # `external`: network do bộ lệnh craneops tạo và sở hữu, không thuộc project nào.
+  # Cùng khai `name:` ở hai project thì compose cảnh báo ở mọi lệnh, và `down` của project
+  # này sẽ thử xoá network project kia đang dùng. Tạo bằng: docker network create craneops
+  # (craneops-lib.sh làm việc đó tự động).
   craneops:
-    name: craneops
+    external: true
