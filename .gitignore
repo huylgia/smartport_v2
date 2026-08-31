@@ -31,7 +31,14 @@ assets/
 *.onnx
 *.plan
 *.engine
-triton/repo/**/[0-9]*/
+# `/*` chứ không phải `/`: loại NỘI DUNG thư mục version, không loại chính thư mục.
+# Loại cả thư mục thì git không đi vào trong, và dòng `!` dưới đây thành vô hiệu — file
+# vẫn bị bỏ qua, chỉ `git add -f` mới đưa vào được.
+triton/repo/**/[0-9]*/*
+# … TRỪ shim Python của BLS: chúng là MÃ NGUỒN (nhỏ, đọc được, sinh từ
+# tools/export_models.py), không phải engine. Loại chúng làm clone mới không chạy được
+# Triton — hai model BLS báo "version directory is not present" và server thoát.
+!triton/repo/**/[0-9]*/model.py
 
 # --- Dữ liệu runtime ---
 /var/
