@@ -96,8 +96,18 @@ class CameraConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    crane_id: str = ""
+    """Mã cẩu, **được bơm xuống** từ :class:`CraneConfig` lúc load — không khai trong YAML.
+
+    Camera cần biết cẩu của nó để dựng :attr:`code`. Bơm xuống thay vì bắt khai lại: khai
+    hai chỗ là hai chỗ có thể lệch nhau."""
+
     id: int = Field(ge=1)
+
     name: str
+    """Mô tả cho người đọc ("Mặt phải trước"). **Không phải định danh** — đừng dùng nó để
+    khớp dữ liệu; nó đổi khi ai đó sửa cho dễ hiểu hơn."""
+
     role: CameraRole
 
     rtsp_record: str
@@ -163,6 +173,28 @@ class CameraConfig(BaseModel):
         return self
 
     @property
+    def code(self) -> str:
+        """Mã camera chuẩn: ``<mã cẩu>_<ip>_<cổng>``, dấu chấm trong IP đổi thành gạch dưới.
+
+        Ví dụ: ``GC03_113_160_225_15_1508``.
+
+        Suy từ URL chứ không khai riêng: một trường khai tay là một trường có thể trôi khỏi
+        URL, và khi đó dữ liệu bị gán cho nhầm camera mà không có gì báo.
+
+        ⚠️ **Phải có cổng.** Cả 10 camera GC03 dùng chung IP ``113.160.225.15`` — đó là
+        gateway NAT, mỗi cổng là một camera. Mã chỉ gồm IP sẽ giống hệt nhau cho cả 10.
+
+        Tiền tố mã cẩu để mã còn phân biệt được khi nhiều cẩu gửi về cùng một nơi: hai cẩu
+        sau NAT riêng có thể trùng dải IP nội bộ.
+        """
+        host = self.rtsp_record.split("://", 1)[1].split("@")[-1].split("/")[0]
+        ip, _, port = host.partition(":")
+        parts = [self.crane_id, ip.replace(".", "_")]
+        if port:
+            parts.append(port)
+        return "_".join(p for p in parts if p)
+
+    @property
     def decodes(self) -> bool:
         """Camera này có đi vào nhánh model (tức có tốn NVDEC) không.
 
@@ -181,12 +213,36 @@ class CraneConfig(BaseModel):
     num_lane: int = Field(ge=1, le=9)
     cameras: list[CameraConfig] = Field(min_length=1)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _stamp_crane_id(cls, data: Any) -> Any:
+        """Bơm ``crane_id`` xuống từng camera.
+
+        Ghi đè bất cứ giá trị nào có sẵn: đây là trường dẫn xuất, và để người dùng khai đè
+        nghĩa là mở đường cho một camera tự nhận thuộc cẩu khác.
+        """
+        if isinstance(data, dict) and isinstance(data.get("cameras"), list):
+            crane_id = data.get("crane_id", "")
+            for cam in data["cameras"]:
+                if isinstance(cam, dict):
+                    cam["crane_id"] = crane_id
+        return data
+
     @model_validator(mode="after")
     def _consistent(self) -> CraneConfig:
         ids = [c.id for c in self.cameras]
         if len(ids) != len(set(ids)):
-            dup = sorted({i for i in ids if ids.count(i) > 1})
-            raise ValueError(f"id camera trùng: {dup}")
+            dup_ids = sorted({i for i in ids if ids.count(i) > 1})
+            raise ValueError(f"id camera trùng: {dup_ids}")
+
+        codes = [c.code for c in self.cameras]
+        if len(codes) != len(set(codes)):
+            dup_codes = sorted({c for c in codes if codes.count(c) > 1})
+            raise ValueError(
+                f"mã camera trùng nhau: {dup_codes}. Mã suy từ host+cổng của URL, nên trùng "
+                f"nghĩa là hai camera cùng một điểm cuối — hoặc URL sai. Để nguyên thì dữ "
+                f"liệu của camera này bị gán cho camera kia mà không có gì báo."
+            )
 
         for cam in self.cameras:
             for lane in cam.lane_zones:

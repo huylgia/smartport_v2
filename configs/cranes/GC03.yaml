@@ -5,6 +5,10 @@
 #
 # Toạ độ vùng là TƯƠNG ĐỐI [0..1], không phải pixel — xem docs/DESIGN_NOTES.md DN-002.
 
+# `name` chỉ là MÔ TẢ cho người đọc. Định danh là `camera.code`, suy từ `crane_id` + URL
+# (`<mã cẩu>_<ip>_<cổng>`, ví dụ GC03_113_160_225_15_1508) — không khai tay, để nó không
+# trôi khỏi URL. Segment ghi ra đặt tên bằng epoch nguyên giây, là lúc tạo đoạn.
+
 crane_id: GC03
 berth_no: TS03 # mã bến, dùng để đối chiếu manifest Oracle
 num_lane: 3

@@ -208,8 +208,8 @@ def test_output_directory_is_created_per_camera(gst: Any, tmp_path: Path) -> Non
 # ---------------------------------------------------------------- neo thời gian
 
 
-def _fragment_callback(bin_: Any, cam_id: str = "1") -> Any:
-    sink = bin_.get_by_name(f"splitmuxsink_{cam_id}")
+def _fragment_callback(bin_: Any, camera_code: str = "1") -> Any:
+    sink = bin_.get_by_name(f"splitmuxsink_{camera_code}")
     return sink.signals["format-location-full"][0][0], sink
 
 

@@ -43,7 +43,7 @@ TS = 1_756_312_837.4
 def _perception(**over: object) -> PerceptionMessage:
     kw: dict[str, object] = {
         "crane_id": "GC03",
-        "cam_id": 1,
+        "camera_code": "GC03_113_160_225_15_1508",
         "role": CameraRole.CCODE,
         "frame_id": 300,
         "start_ts": 1_756_312_827.4,
@@ -153,7 +153,7 @@ def test_missing_required_field_is_rejected() -> None:
 
 def test_wrong_type_is_rejected() -> None:
     payload = _perception().model_dump()
-    payload["cam_id"] = "không phải số"
+    payload["camera_code"] = ""
     with pytest.raises(ValidationError):
         decode(Topic.PERCEPTION_CCODE, json.dumps(payload).encode())
 
@@ -221,9 +221,9 @@ def test_confidence_must_be_a_probability() -> None:
             Detection(bbox=BBox(x1=0, y1=0, x2=1, y2=1), class_name="c", confidence=bad)
 
 
-def test_cam_id_must_be_positive() -> None:
+def test_camera_code_must_not_be_empty() -> None:
     with pytest.raises(ValidationError):
-        _perception(cam_id=0)
+        _perception(camera_code="")
 
 
 def test_fps_is_source_fps_not_effective() -> None:
@@ -238,7 +238,7 @@ def test_signal_defaults_to_right_direction() -> None:
     s = Signal(
         rule_code="CCODE01",
         crane_id="GC03",
-        cam_id=1,
+        camera_code="GC03_113_160_225_15_1508",
         lane=Lane.ONE,
         kind=SignalKind.CONTAINER_NO,
         frame_ts=TS,
@@ -253,7 +253,7 @@ def test_signal_kind_must_be_a_known_enum() -> None:
         Signal(
             rule_code="X",
             crane_id="GC03",
-            cam_id=1,
+            camera_code="GC03_113_160_225_15_1508",
             lane=Lane.ONE,
             kind="go_sai_ten",  # type: ignore[arg-type]
             frame_ts=TS,
@@ -286,21 +286,35 @@ def test_non_empty_manifest() -> None:
 
 
 def test_evidence_job_windows_match_v1_offsets() -> None:
-    normal = EvidenceJob(kind=EvidenceKind.CLIP, cam_id=1, window=(-20.0, 15.0))
-    bottom = EvidenceJob(kind=EvidenceKind.CLIP, cam_id=9, window=(-35.0, 10.0))
+    normal = EvidenceJob(
+        kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1508", window=(-20.0, 15.0)
+    )
+    bottom = EvidenceJob(
+        kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
+    )
     assert normal.window == (-20.0, 15.0)
     assert bottom.window == (-35.0, 10.0)
 
 
 def test_evidence_job_rejects_inverted_window() -> None:
     with pytest.raises(ValidationError, match="cửa sổ lật ngược"):
-        EvidenceJob(kind=EvidenceKind.CLIP, cam_id=1, window=(15.0, -20.0))
+        EvidenceJob(
+            kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1508", window=(15.0, -20.0)
+        )
 
 
 def test_mosaic_requires_grid() -> None:
     with pytest.raises(ValidationError, match="mosaic phải có grid"):
-        EvidenceJob(kind=EvidenceKind.MOSAIC, cam_id=9, window=(-35.0, 10.0))
-    ok = EvidenceJob(kind=EvidenceKind.MOSAIC, cam_id=9, window=(-35.0, 10.0), grid=(2, 2), count=3)
+        EvidenceJob(
+            kind=EvidenceKind.MOSAIC, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
+        )
+    ok = EvidenceJob(
+        kind=EvidenceKind.MOSAIC,
+        camera_code="GC03_113_160_225_15_1516",
+        window=(-35.0, 10.0),
+        grid=(2, 2),
+        count=3,
+    )
     assert ok.grid == (2, 2)
 
 
@@ -317,7 +331,11 @@ def test_evidence_slow_lane_carries_delay() -> None:
         lane=Lane.ONE,
         anchor_ts=TS,
         delay=40.0,
-        jobs=[EvidenceJob(kind=EvidenceKind.CLIP, cam_id=9, window=(-35.0, 10.0))],
+        jobs=[
+            EvidenceJob(
+                kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
+            )
+        ],
     )
     assert m.delay == 40.0
 
@@ -417,4 +435,4 @@ def test_other_actions_do_not_need_rule_code(action: ControlAction) -> None:
 def test_messages_are_frozen() -> None:
     msg = _perception()
     with pytest.raises(ValidationError):
-        msg.cam_id = 2
+        msg.camera_code = "KHAC"

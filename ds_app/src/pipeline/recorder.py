@@ -43,7 +43,7 @@ class RecordingBranch:
     """Ghép nhánh ghi vào từng source bin.
 
     Args:
-        output_dir: Thư mục gốc; mỗi camera một thư mục con theo ``cam_id``.
+        output_dir: Thư mục gốc; mỗi camera một thư mục con theo ``camera_code``.
         file_format: ``"epoch"`` (mặc định) ⇒ tên file là dấu thời gian epoch **nguyên
             giây**, chính là lúc đoạn được tạo. Máy đọc được ngay mà không phải phân tích
             chuỗi, không dính múi giờ, và sắp xếp theo tên trùng sắp xếp theo thời gian.
@@ -52,7 +52,7 @@ class RecordingBranch:
             tường, và khi đó mốc đoạn sẽ **trôi khỏi** dấu thời gian khung — cửa sổ cắt
             clip lệch dần mà không có gì báo. Chỉ để ``None`` khi chạy độc lập.
         fragments: Sổ đoạn để tra "khoảnh khắc T nằm ở đoạn nào".
-        on_fragment: Gọi ``(cam_id, path, mo_luc_unix)`` mỗi khi mở một đoạn mới.
+        on_fragment: Gọi ``(camera_code, path, mo_luc_unix)`` mỗi khi mở một đoạn mới.
     """
 
     def __init__(
@@ -82,27 +82,27 @@ class RecordingBranch:
         self._gop_reported: set[str] = set()
 
     # ------------------------------------------------------------------ gắn vào
-    def attach(self, Gst: Any, source_bin: Any, cam_id: str) -> None:
+    def attach(self, Gst: Any, source_bin: Any, camera_code: str) -> None:
         """Ghép nhánh ghi vào ``source_bin``. An toàn khi gọi trước lúc bin dựng xong."""
         self._Gst = Gst
-        (self._root / cam_id).mkdir(parents=True, exist_ok=True)
+        (self._root / camera_code).mkdir(parents=True, exist_ok=True)
 
         for child in _descendants(Gst, source_bin):
             if child.get_name() == _MARKER:
-                self._graft(Gst, source_bin, cam_id)
+                self._graft(Gst, source_bin, camera_code)
                 return
-        source_bin.connect("deep-element-added", self._on_deep_added, cam_id)
+        source_bin.connect("deep-element-added", self._on_deep_added, camera_code)
 
-    def _on_deep_added(self, top_bin: Any, _sub_bin: Any, element: Any, cam_id: str) -> None:
+    def _on_deep_added(self, top_bin: Any, _sub_bin: Any, element: Any, camera_code: str) -> None:
         if element.get_name() == _MARKER:
-            self._graft(self._Gst, top_bin, cam_id)
+            self._graft(self._Gst, top_bin, camera_code)
 
-    def _graft(self, Gst: Any, source_bin: Any, cam_id: str) -> None:
+    def _graft(self, Gst: Any, source_bin: Any, camera_code: str) -> None:
         tee = source_bin.get_by_name("tee_rtsp_pre_decode")
         parser = source_bin.get_by_name("parser")
         if tee is None or parser is None:
             raise RuntimeError(
-                f"camera {cam_id}: không thấy phần bên trong của nvurisrcbin "
+                f"camera {camera_code}: không thấy phần bên trong của nvurisrcbin "
                 f"(tee_rtsp_pre_decode={tee!r}, parser={parser!r}). "
                 f"Phiên bản DeepStream đổi tên element bên trong?"
             )
@@ -112,21 +112,21 @@ class RecordingBranch:
 
         # Cùng họ parser với nhánh decode: nguồn có thể là H.264 hoặc H.265.
         parse_factory = parser.get_factory().get_name()
-        record_parse = make(Gst, parse_factory, f"parse_record_{cam_id}")
+        record_parse = make(Gst, parse_factory, f"parse_record_{camera_code}")
         # ⚠️ config-interval=-1 BẮT BUỘC: chèn lại VPS/SPS/PPS trước mỗi keyframe. Không có
         # nó thì từng đoạn không tự đứng được và `evidenced` không mở nổi file.
         record_parse.set_property("config-interval", -1)
 
-        queue = make(Gst, "queue", f"queue_record_{cam_id}")
+        queue = make(Gst, "queue", f"queue_record_{camera_code}")
         apply_props(queue, RECORD_QUEUE)
 
-        sink = make(Gst, "splitmuxsink", f"splitmuxsink_{cam_id}")
+        sink = make(Gst, "splitmuxsink", f"splitmuxsink_{camera_code}")
         apply_props(sink, SPLITMUX)
         _configure_muxer(Gst, sink)
 
         # Chặn buffer không có PTS TRƯỚC khi nó tới muxer — xem _drop_pts_less.
         record_parse.get_static_pad("src").add_probe(
-            Gst.PadProbeType.BUFFER, self._drop_pts_less, cam_id
+            Gst.PadProbeType.BUFFER, self._drop_pts_less, camera_code
         )
 
         for element in (queue, record_parse, sink):
@@ -135,16 +135,18 @@ class RecordingBranch:
 
         tee_pad = tee.get_request_pad("src_%u")
         if tee_pad is None:
-            raise RuntimeError(f"camera {cam_id}: tee_rtsp_pre_decode không cấp được request pad")
+            raise RuntimeError(
+                f"camera {camera_code}: tee_rtsp_pre_decode không cấp được request pad"
+            )
         if tee_pad.link(queue.get_static_pad("sink")) != Gst.PadLinkReturn.OK:
-            raise RuntimeError(f"camera {cam_id}: không nối được tee -> queue ghi hình")
+            raise RuntimeError(f"camera {camera_code}: không nối được tee -> queue ghi hình")
         if not queue.link(record_parse) or not record_parse.link(sink):
-            raise RuntimeError(f"camera {cam_id}: không nối được chuỗi ghi hình")
+            raise RuntimeError(f"camera {camera_code}: không nối được chuỗi ghi hình")
 
-        sink.connect("format-location-full", self._on_new_fragment, cam_id)
+        sink.connect("format-location-full", self._on_new_fragment, camera_code)
 
     # ------------------------------------------------------------------ probe
-    def _drop_pts_less(self, _pad: Any, info: Any, cam_id: str) -> Any:
+    def _drop_pts_less(self, _pad: Any, info: Any, camera_code: str) -> Any:
         """Bỏ buffer không có PTS, và nhân tiện đo GOP.
 
         ⚠️ Nguồn RTSP thỉnh thoảng đẩy ra buffer không có dấu thời gian. Cho nó tới
@@ -153,56 +155,56 @@ class RecordingBranch:
         Gst = self._Gst
         buf = info.get_buffer()
         if buf is not None and buf.pts != Gst.CLOCK_TIME_NONE:
-            self._sample_gop(Gst, buf, cam_id)
+            self._sample_gop(Gst, buf, camera_code)
             return Gst.PadProbeReturn.OK
 
-        if cam_id not in self._no_pts_warned:
-            self._no_pts_warned.add(cam_id)
+        if camera_code not in self._no_pts_warned:
+            self._no_pts_warned.add(camera_code)
             # Log MỘT lần cho mỗi camera: nguồn lỗi thì nó xảy ra liên tục, và log mỗi
             # buffer sẽ nhấn chìm mọi thứ khác.
             print(  # noqa: T201 — ds_app chạy trong container, stdout là log
-                f"[record] {cam_id}: bỏ buffer không có PTS (sẽ làm abort mp4mux); "
+                f"[record] {camera_code}: bỏ buffer không có PTS (sẽ làm abort mp4mux); "
                 f"các lần sau của camera này không log nữa",
                 flush=True,
             )
         return Gst.PadProbeReturn.DROP
 
-    def _sample_gop(self, Gst: Any, buf: Any, cam_id: str) -> None:
+    def _sample_gop(self, Gst: Any, buf: Any, camera_code: str) -> None:
         """Báo GOP thật của nguồn, một lần cho mỗi camera.
 
         GOP quyết định độ dài đoạn THẬT: ``splitmuxsink`` chỉ cắt tại keyframe, nên
         ``độ dài thật = ceil(giới hạn / GOP) lần GOP``. ``evidenced`` tính cửa sổ theo độ
         dài thật, nên con số này phải đo chứ không giả định.
         """
-        if cam_id in self._gop_reported:
+        if camera_code in self._gop_reported:
             return
         if buf.mini_object.flags & Gst.BufferFlags.DELTA_UNIT:
             return  # không phải keyframe
 
         pts_sec = buf.pts / Gst.SECOND
-        previous = self._last_keyframe.get(cam_id)
-        self._last_keyframe[cam_id] = pts_sec
+        previous = self._last_keyframe.get(camera_code)
+        self._last_keyframe[camera_code] = pts_sec
         if previous is None:
             return
 
-        gaps = self._gop_gaps.setdefault(cam_id, [])
+        gaps = self._gop_gaps.setdefault(camera_code, [])
         gaps.append(pts_sec - previous)
         if len(gaps) < _GOP_SAMPLES:
             return
 
         gop = statistics.median(gaps)
-        self._gop_reported.add(cam_id)
+        self._gop_reported.add(camera_code)
         limit = SPLITMUX["max-size-time"] / 1e9
         real = gop if gop >= limit else (int(limit / gop) + (limit % gop > 0)) * gop
         print(  # noqa: T201
-            f"[record] {cam_id}: GOP nguồn {gop:.2f}s, giới hạn {limit:.0f}s "
+            f"[record] {camera_code}: GOP nguồn {gop:.2f}s, giới hạn {limit:.0f}s "
             f"⇒ đoạn dài thật ~{real:.1f}s",
             flush=True,
         )
 
     # ------------------------------------------------------------------ tên file
-    def _on_new_fragment(self, _sink: Any, _fragment_id: int, sample: Any, cam_id: str) -> str:
-        opened = self._fragment_unix(sample, cam_id)
+    def _on_new_fragment(self, _sink: Any, _fragment_id: int, sample: Any, camera_code: str) -> str:
+        opened = self._fragment_unix(sample, camera_code)
         if self._file_format == "epoch":
             # Epoch nguyên, không phải chuỗi giờ: `evidenced` cần một CON SỐ để so với dấu
             # thời gian khung. Tên dạng giờ buộc nó phân tích ngược, mà phân tích ngược thì
@@ -216,14 +218,16 @@ class RecordingBranch:
             stamp = datetime.datetime.fromtimestamp(opened, tz=datetime.timezone.utc).strftime(
                 self._file_format
             )
-        path = str(self._root / cam_id / f"{stamp}.mp4")
+        path = str(self._root / camera_code / f"{stamp}.mp4")
         if self._fragments is not None:
-            self._fragments.open_fragment(cam_id, path, opened, SPLITMUX["max-size-time"] / 1e9)
+            self._fragments.open_fragment(
+                camera_code, path, opened, SPLITMUX["max-size-time"] / 1e9
+            )
         if self._on_fragment is not None:
-            self._on_fragment(cam_id, path, opened)
+            self._on_fragment(camera_code, path, opened)
         return path
 
-    def _fragment_unix(self, sample: Any, cam_id: str) -> float:
+    def _fragment_unix(self, sample: Any, camera_code: str) -> float:
         """Mốc mở đoạn, **trên cùng trục mà probe đóng dấu khung**.
 
         Đồng hồ tường chỉ là đường lui khi chưa neo được (vài buffer đầu của RTSP có thể
@@ -238,7 +242,7 @@ class RecordingBranch:
         if pts is None or pts == self._Gst.CLOCK_TIME_NONE:
             return now
         pts_sec = pts / self._Gst.SECOND
-        base = self._time_sync.anchor(cam_id, pts_sec, now)
+        base = self._time_sync.anchor(camera_code, pts_sec, now)
         return base.to_unix(pts_sec) if base is not None else now
 
 

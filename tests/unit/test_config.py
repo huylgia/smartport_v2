@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[2]
 GC03 = REPO / "configs" / "cranes" / "GC03.yaml"
 
 ENV = {  # pragma: allowlist secret — URL giả, cố ý có dạng có credential
-    f"CAM{i:02d}_RTSP": f"rtsp://u:p@10.0.0.{i}:554/s" for i in range(1, 12)
+    f"CAM{i:02d}_RTSP": f"rtsp://u:p@10.0.0.1:{1500 + i}/s" for i in range(1, 12)
 }
 
 
@@ -240,6 +240,104 @@ def test_inverted_roi_is_rejected() -> None:
         OcrRoi(shape="vertical", lane=Lane.ONE, roi=(0.5, 0.5, 0.1, 0.1), input_size=(576, 608))
 
 
+# ---------------------------------------------------------------- mã camera
+
+
+def test_camera_code_includes_the_port() -> None:
+    """⚠️ Cả 10 camera GC03 dùng CHUNG một IP — gateway NAT, mỗi cổng một camera.
+
+    Mã chỉ gồm IP sẽ giống hệt nhau cho cả 10, tức không định danh được gì.
+    """
+    cfg = load_crane(GC03, env=ENV)
+    codes = [c.code for c in cfg.cameras]
+
+    assert len(set(codes)) == len(codes), "mã camera phải phân biệt được"
+    assert all(c.startswith("GC03_") for c in codes)
+
+
+def test_camera_code_format() -> None:
+    """``<mã cẩu>_<ip>_<cổng>`` — tiền tố cẩu để hai cẩu sau NAT riêng không trùng mã."""
+    cam = CameraConfig(
+        crane_id="GC03",
+        id=1,
+        name="x",
+        role=CameraRole.CCODE,
+        rtsp_record="rtsp://u:p@113.160.225.15:1508//CH001.sdp",
+    )
+    assert cam.code == "GC03_113_160_225_15_1508"
+
+
+def test_crane_id_is_stamped_onto_cameras_at_load() -> None:
+    """Camera không khai `crane_id` trong YAML — nó được bơm xuống lúc load.
+
+    Khai hai chỗ là hai chỗ có thể lệch nhau.
+    """
+    cfg = load_crane(GC03, env=ENV)
+    assert all(c.crane_id == "GC03" for c in cfg.cameras)
+
+
+def test_declared_crane_id_on_a_camera_is_overridden(tmp_path: Path) -> None:
+    """Người dùng khai đè `crane_id` cho camera phải bị bỏ qua — nếu không một camera có
+    thể tự nhận thuộc cẩu khác, và dữ liệu của nó đi nhầm chỗ."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {
+                        "id": 1,
+                        "name": "a",
+                        "role": "ccode",
+                        "rtsp_record": "rtsp://10.0.0.1:1/s",
+                        "crane_id": "CAI-KHAC",
+                    },
+                ]
+            )
+        )
+    )
+    cfg = load_crane(p, env={})
+    assert cfg.camera(1).crane_id == "GC03"
+    assert cfg.camera(1).code.startswith("GC03_")
+
+
+def test_camera_code_ignores_credentials() -> None:
+    """URL có credential; mã thì không — nó đi vào log và tên file."""
+    cam = CameraConfig(
+        crane_id="GC03",
+        id=1,
+        name="x",
+        role=CameraRole.CCODE,
+        rtsp_record="rtsp://admin:secret@10.0.0.1:554/s",  # pragma: allowlist secret
+    )
+    assert "admin" not in cam.code and "secret" not in cam.code
+    assert cam.code == "GC03_10_0_0_1_554"
+
+
+def test_camera_code_without_a_port() -> None:
+    cam = CameraConfig(
+        crane_id="GC03", id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://10.0.0.1/s"
+    )
+    assert cam.code == "GC03_10_0_0_1"
+
+
+def test_name_is_only_a_description() -> None:
+    """``name`` là mô tả cho người đọc, KHÔNG phải định danh — nó đổi khi ai đó sửa cho dễ hiểu."""
+    cfg = load_crane(GC03, env=ENV)
+    cam = cfg.camera(1)
+    assert cam.name == "Mặt phải trước"
+    assert cam.code != cam.name
+
+
+def test_no_fps_knob_remains() -> None:
+    """Không còn núm chỉnh fps: decimate ở decoder KHÔNG tiết kiệm NVDEC.
+
+    Nguồn là IPPP, GOP 50, không khung B — mọi khung đều phải giải mã, ``drop-frame-interval``
+    chỉ vứt output SAU đó. Giảm nhịp là việc của tầng nghiệp vụ. Xem HARDWARE_BUDGET §2.2.
+    """
+    assert not hasattr(CameraConfig, "keep_interval")
+    assert "drop_frame_interval" not in CameraConfig.model_fields
+
+
 # ---------------------------------------------------------------- thứ tự nguồn
 
 
@@ -310,3 +408,24 @@ def test_whitespace_is_trimmed_not_tolerated_inside() -> None:
     assert cam.rtsp_record == "rtsp://h/s"
     with pytest.raises(ValueError, match="phân tách"):
         CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s extra")
+
+
+def test_duplicate_camera_code_is_rejected(tmp_path: Path) -> None:
+    """Hai camera cùng điểm cuối ⇒ cùng mã ⇒ dữ liệu bị gán nhầm, im lặng.
+
+    Đã suýt xảy ra: fixture test dùng `rtsp://h/1`, `rtsp://h/2`… — khác path nhưng CÙNG
+    host và không cổng, nên cả 10 camera ra cùng một mã.
+    """
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {"id": 1, "name": "a", "role": "ccode", "rtsp_record": "rtsp://h/1"},
+                    {"id": 2, "name": "b", "role": "ccode", "rtsp_record": "rtsp://h/2"},
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="mã camera trùng"):
+        load_crane(p, env={})

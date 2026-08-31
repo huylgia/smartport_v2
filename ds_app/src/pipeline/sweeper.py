@@ -102,7 +102,7 @@ def sweep(
     """Quét một lượt trên cây thư mục ghi hình.
 
     Args:
-        root: Thư mục gốc; cấu trúc ``<root>/<cam_id>/*.mp4``.
+        root: Thư mục gốc; cấu trúc ``<root>/<mã camera>/*.mp4``.
         policy: Ngưỡng; mặc định :class:`SweepPolicy`.
         now: Thời điểm coi là "bây giờ", epoch giây. Truyền vào để test.
         keep_newest_per_dir: Giữ lại file mới nhất của mỗi camera. Đó là đoạn **đang được

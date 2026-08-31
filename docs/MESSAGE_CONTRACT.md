@@ -20,10 +20,10 @@ Nguồn sự thật là `common/message.py` (pydantic v2). Tài liệu này gi�
 
 | Topic | Key | Producer | Consumer | Retention |
 |---|---|---|---|---|
-| `craneops.perception.ccode` | `cam_id` | ds_app | ruled@ccode | 1 h |
-| `craneops.perception.tcode` | `cam_id` | ds_app | ruled@tcode | 1 h |
-| `craneops.perception.crane` | `cam_id` | ds_app | ruled@crane | 1 h |
-| `craneops.perception.bottom` | `cam_id` | ds_app | ruled@bottom | 1 h |
+| `craneops.perception.ccode` | `camera_code` | ds_app | ruled@ccode | 1 h |
+| `craneops.perception.tcode` | `camera_code` | ds_app | ruled@tcode | 1 h |
+| `craneops.perception.crane` | `camera_code` | ds_app | ruled@crane | 1 h |
+| `craneops.perception.bottom` | `camera_code` | ds_app | ruled@bottom | 1 h |
 | `craneops.signals` | `lane` | ruled | orchestratord | 6 h |
 | `craneops.manifest` | `crane_id` | syncd | ruled@ccode, ruled@crane | **compacted** |
 | `craneops.evidence.fast` | `event_id` | orchestratord | evidenced | 24 h |
@@ -33,7 +33,14 @@ Nguồn sự thật là `common/message.py` (pydantic v2). Tài liệu này gi�
 
 **Vì sao key như vậy**
 
-- `perception.*` key theo `cam_id`: một camera là một dòng thời gian, phải giữ thứ tự frame.
+- `perception.*` key theo `camera_code`: một camera là một dòng thời gian, phải giữ thứ tự frame.
+
+`camera_code` có dạng `<mã cẩu>_<ip>_<cổng>` (`GC03_113_160_225_15_1508`) và **suy từ URL
+trong config**, không khai tay. Cùng chuỗi đó là tên thư mục ghi hình, nên `segment_hint`
+và `camera_code` không thể trôi khỏi nhau.
+
+`crane_id` vẫn là trường riêng dù mã camera đã chứa nó: mã cẩu có thể chứa gạch dưới, và
+khi đó tách ngược từ `camera_code` là đoán.
 - `signals` key theo `lane`: orchestrator dựng state machine theo lane, mọi signal của
   cùng một lane phải tuần tự. Signal từ nhiều camera khác nhau vẫn về cùng partition.
 - `manifest` **compacted**: chỉ cần bản mới nhất. Thay `ContainerCodeCamera.DATABASE`
@@ -112,13 +119,13 @@ vốn chỉ có tác dụng trong một process.
 {
   "schema_version": "1.0",
   "crane_id": "GC03",
-  "cam_id": 1,
+  "camera_code": "GC03_113_160_225_15_1508",
   "role": "ccode",
   "frame_id": 300,
   "start_ts": 1756312827.4,
   "fps": 30.0,
   "frame_ts": 1756312837.4,
-  "segment_hint": "/var/lib/craneops/rec/1/1756312830.mp4",
+  "segment_hint": "/var/lib/craneops/rec/GC03_113_160_225_15_1508/1756312830.mp4",
   "detections": [
     {
       "bbox": {
@@ -158,7 +165,7 @@ vốn chỉ có tác dụng trong một process.
   "schema_version": "1.0",
   "rule_code": "CCODE01",
   "crane_id": "GC03",
-  "cam_id": 1,
+  "camera_code": "GC03_113_160_225_15_1508",
   "lane": "1",
   "direction": "RIGHT",
   "kind": "container_no",
@@ -207,7 +214,7 @@ vốn chỉ có tác dụng trong một process.
   "jobs": [
     {
       "kind": "clip",
-      "cam_id": 1,
+      "camera_code": "GC03_113_160_225_15_1508",
       "window": [
         -20.0,
         15.0
@@ -217,7 +224,7 @@ vốn chỉ có tác dụng trong một process.
     },
     {
       "kind": "mosaic",
-      "cam_id": 9,
+      "camera_code": "GC03_113_160_225_15_1516",
       "window": [
         -35.0,
         10.0

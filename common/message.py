@@ -214,7 +214,17 @@ class PerceptionMessage(_Msg):
     topic: ClassVar[Topic] = Topic.PERCEPTION_CCODE  # ghi đè theo role, xem model_for_topic
 
     crane_id: str
-    cam_id: int = Field(ge=1)
+    """Mã cẩu. Giữ riêng chứ không tách từ ``camera_code``: mã cẩu có thể chứa gạch dưới,
+    và khi đó tách ngược là đoán."""
+
+    camera_code: str = Field(min_length=1)
+    """Định danh camera, dạng ``<mã cẩu>_<ip>_<cổng>`` (``GC03_113_160_225_15_1508``).
+
+    Suy từ URL trong config (:attr:`common.config.CameraConfig.code`), không khai tay — một
+    trường khai tay là một trường có thể trôi khỏi URL, và khi đó dữ liệu bị gán cho nhầm
+    camera mà không có gì báo. Cùng một chuỗi được dùng làm tên thư mục ghi hình, nên
+    ``segment_hint`` và trường này luôn khớp nhau."""
+
     role: CameraRole
 
     frame_id: int = Field(ge=0)
@@ -259,7 +269,14 @@ class Signal(_Msg):
 
     rule_code: str
     crane_id: str
-    cam_id: int = Field(ge=1)
+    camera_code: str = Field(min_length=1)
+    """Định danh camera, dạng ``<mã cẩu>_<ip>_<cổng>`` (``GC03_113_160_225_15_1508``).
+
+    Suy từ URL trong config (:attr:`common.config.CameraConfig.code`), không khai tay — một
+    trường khai tay là một trường có thể trôi khỏi URL, và khi đó dữ liệu bị gán cho nhầm
+    camera mà không có gì báo. Cùng một chuỗi được dùng làm tên thư mục ghi hình, nên
+    ``segment_hint`` và trường này luôn khớp nhau."""
+
     lane: Lane
     direction: Direction = Direction.RIGHT
     kind: SignalKind
@@ -325,7 +342,14 @@ class EvidenceJob(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     kind: EvidenceKind
-    cam_id: int = Field(ge=1)
+    camera_code: str = Field(min_length=1)
+    """Định danh camera, dạng ``<mã cẩu>_<ip>_<cổng>`` (``GC03_113_160_225_15_1508``).
+
+    Suy từ URL trong config (:attr:`common.config.CameraConfig.code`), không khai tay — một
+    trường khai tay là một trường có thể trôi khỏi URL, và khi đó dữ liệu bị gán cho nhầm
+    camera mà không có gì báo. Cùng một chuỗi được dùng làm tên thư mục ghi hình, nên
+    ``segment_hint`` và trường này luôn khớp nhau."""
+
     window: tuple[float, float]
     """Offset ``(trước, sau)`` tính bằng giây so với ``anchor_ts``. Offset trước thường âm.
 

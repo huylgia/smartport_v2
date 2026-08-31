@@ -59,13 +59,13 @@ def samples() -> dict[str, Message]:
     return {
         "craneops.perception.*": PerceptionMessage(
             crane_id="GC03",
-            cam_id=1,
+            camera_code="GC03_113_160_225_15_1508",
             role=CameraRole.CCODE,
             frame_id=300,
             start_ts=TS - 10.0,
             fps=30.0,
             frame_ts=TS,
-            segment_hint="/var/lib/craneops/rec/1/1756312830.mp4",
+            segment_hint="/var/lib/craneops/rec/GC03_113_160_225_15_1508/1756312830.mp4",
             detections=[
                 Detection(
                     bbox=BBox(x1=505, y1=81, x2=1115, y2=662),
@@ -88,7 +88,7 @@ def samples() -> dict[str, Message]:
         "craneops.signals": Signal(
             rule_code="CCODE01",
             crane_id="GC03",
-            cam_id=1,
+            camera_code="GC03_113_160_225_15_1508",
             lane=Lane.ONE,
             direction=Direction.RIGHT,
             kind=SignalKind.CONTAINER_NO,
@@ -119,10 +119,14 @@ def samples() -> dict[str, Message]:
             anchor_ts=TS,
             delay=20.0,
             jobs=[
-                EvidenceJob(kind=EvidenceKind.CLIP, cam_id=1, window=(-20.0, 15.0)),
+                EvidenceJob(
+                    kind=EvidenceKind.CLIP,
+                    camera_code="GC03_113_160_225_15_1508",
+                    window=(-20.0, 15.0),
+                ),
                 EvidenceJob(
                     kind=EvidenceKind.MOSAIC,
-                    cam_id=9,
+                    camera_code="GC03_113_160_225_15_1516",
                     window=(-35.0, 10.0),
                     grid=(2, 2),
                     count=3,

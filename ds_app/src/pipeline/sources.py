@@ -46,8 +46,8 @@ def build_sources(
     """Dựng nguồn cho **mọi** camera; chỉ camera ``decodes`` được nối vào muxer.
 
     Returns:
-        ``{pad_index: cam_id}`` cho các camera có vào muxer. Probe cần bảng này: metadata
-        của DeepStream chỉ mang ``pad_index``, không mang id camera.
+        ``{pad_index: camera.code}`` cho các camera có vào muxer. Probe cần bảng này:
+        metadata của DeepStream chỉ mang ``pad_index``, không mang danh tính camera.
     """
     pad_of_camera: dict[int, str] = {}
     pad_index = 0
@@ -57,7 +57,7 @@ def build_sources(
         pipeline.add(bin_)
 
         if recorder is not None:
-            recorder.attach(Gst, bin_, str(camera.id))
+            recorder.attach(Gst, bin_, camera.code)
 
         if not camera.decodes:
             # Không nối vào muxer: camera này chỉ ghi hình. Nhánh decode bên trong
@@ -85,7 +85,7 @@ def build_sources(
         if watchdog is not None:
             watchdog.watch(pad_index, camera, src_pad)
 
-        pad_of_camera[pad_index] = str(camera.id)
+        pad_of_camera[pad_index] = camera.code
         pad_index += 1
 
     return pad_of_camera
@@ -216,7 +216,7 @@ def replace_source(
     fresh = make_source_bin(Gst, index, camera)
     pipeline.add(fresh)
     if recorder is not None:
-        recorder.attach(Gst, fresh, str(camera.id))
+        recorder.attach(Gst, fresh, camera.code)
     if queue_sink is not None:
         link_pads(Gst, fresh.get_static_pad("src"), queue_sink, name, f"queue_source_{index}")
     if watchdog is not None:

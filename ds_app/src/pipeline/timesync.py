@@ -59,27 +59,27 @@ class TimeSync:
         self._bases: dict[str, TimeBase] = {}
         self._lock = threading.Lock()
 
-    def get(self, cam_id: str) -> TimeBase | None:
-        return self._bases.get(cam_id)
+    def get(self, camera_code: str) -> TimeBase | None:
+        return self._bases.get(camera_code)
 
-    def anchor(self, cam_id: str, pts_sec: float, now_unix: float) -> TimeBase | None:
+    def anchor(self, camera_code: str, pts_sec: float, now_unix: float) -> TimeBase | None:
         """Lấy neo của camera, đặt nó từ khung này nếu chưa có.
 
         Trả ``None`` khi chưa neo được — PTS không hợp lệ. Nơi gọi phải chịu được điều đó:
         vài buffer đầu của nguồn RTSP có thể không có PTS.
         """
-        existing = self._bases.get(cam_id)
+        existing = self._bases.get(camera_code)
         if existing is not None:
             return existing
         if pts_sec <= 0 or now_unix <= 0:
             return None
         with self._lock:
             # Kiểm lại trong khoá: hai luồng có thể cùng tới đây.
-            found = self._bases.get(cam_id)
+            found = self._bases.get(camera_code)
             if found is not None:
                 return found
             base = TimeBase(base_unix=now_unix, first_pts_sec=pts_sec)
-            self._bases[cam_id] = base
+            self._bases[camera_code] = base
             return base
 
 
@@ -115,27 +115,29 @@ class FragmentIndex:
         self._max_history = max_history
         self._lock = threading.Lock()
 
-    def open_fragment(self, cam_id: str, path: str, start_unix: float, duration_sec: float) -> None:
+    def open_fragment(
+        self, camera_code: str, path: str, start_unix: float, duration_sec: float
+    ) -> None:
         """Ghi nhận một đoạn vừa mở. Gọi từ callback ``format-location-full``."""
         with self._lock:
             if self._nominal <= 0 < duration_sec:
                 self._nominal = max(duration_sec - _GUARD_SEC, _GUARD_SEC)
 
-            frags = self._frags.setdefault(cam_id, [])
+            frags = self._frags.setdefault(camera_code, [])
             if frags and start_unix > frags[-1].start_unix:
                 # Đoạn trước kết thúc đúng lúc đoạn này bắt đầu — đây là độ dài THẬT của nó.
                 prev = frags[-1]
                 frags[-1] = Fragment(prev.path, prev.start_unix, start_unix)
                 real = start_unix - prev.start_unix
                 if real > 0:
-                    self._shortest[cam_id] = min(self._shortest.get(cam_id, real), real)
+                    self._shortest[camera_code] = min(self._shortest.get(camera_code, real), real)
 
             frags.append(Fragment(path, start_unix, start_unix + duration_sec))
             if len(frags) > self._max_history:
                 del frags[: len(frags) - self._max_history]
 
     def resolve(
-        self, cam_id: str, frame_unix: float, *, require_closed: bool = False
+        self, camera_code: str, frame_unix: float, *, require_closed: bool = False
     ) -> tuple[Fragment | None, bool]:
         """Đoạn chứa ``frame_unix``, kèm mức tin cậy.
 
@@ -148,7 +150,7 @@ class FragmentIndex:
             nhưng chưa kiểm được — nơi gọi nên chờ thay vì cắt clip từ nó.
         """
         with self._lock:
-            frags = self._frags.get(cam_id)
+            frags = self._frags.get(camera_code)
             if not frags:
                 return None, False
 
@@ -166,10 +168,10 @@ class FragmentIndex:
             if require_closed:
                 return chosen, closed
 
-            window = self._shortest.get(cam_id, self._nominal)
+            window = self._shortest.get(camera_code, self._nominal)
             return chosen, closed or (window > 0 and frame_unix < chosen.start_unix + window)
 
-    def observed_duration(self, cam_id: str) -> float:
+    def observed_duration(self, camera_code: str) -> float:
         """Độ dài đoạn **thật**, học từ hai mốc mở liên tiếp. ``0`` = chưa học được.
 
         ⚠️ Dùng số này, không dùng ``max-size-time`` trong config: ``splitmuxsink`` chỉ cắt
@@ -178,9 +180,9 @@ class FragmentIndex:
         config sẽ chờ thiếu.
         """
         with self._lock:
-            return self._shortest.get(cam_id, self._nominal)
+            return self._shortest.get(camera_code, self._nominal)
 
-    def latest(self, cam_id: str) -> Fragment | None:
+    def latest(self, camera_code: str) -> Fragment | None:
         with self._lock:
-            frags = self._frags.get(cam_id)
+            frags = self._frags.get(camera_code)
             return frags[-1] if frags else None

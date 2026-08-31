@@ -63,8 +63,6 @@ def _frame_meta_probe(camera: CameraConfig, sync: TimeSync, index: FragmentIndex
     """
     import pyds
 
-    from internal.pkg.timebase import restore_frame_id
-
     seen = [0]
 
     def _probe(_pad: Any, info: Any, _u: Any) -> Any:
@@ -81,9 +79,9 @@ def _frame_meta_probe(camera: CameraConfig, sync: TimeSync, index: FragmentIndex
             seen[0] += 1
             if seen[0] <= 3 or seen[0] % 50 == 0:
                 pts_sec = frame.buf_pts / Gst.SECOND
-                base = sync.anchor(str(camera.id), pts_sec, time.time())
+                base = sync.anchor(camera.code, pts_sec, time.time())
                 unix = base.to_unix(pts_sec) if base else float("nan")
-                frag, confident = index.resolve(str(camera.id), unix)
+                frag, confident = index.resolve(camera.code, unix)
                 objects = 0
                 obj = frame.obj_meta_list
                 while obj is not None:
@@ -94,9 +92,7 @@ def _frame_meta_probe(camera: CameraConfig, sync: TimeSync, index: FragmentIndex
                     f"\n[meta] khung #{seen[0]}\n"
                     f"  pad_index      {frame.pad_index}   (chỉ số nguồn trong nvstreammux)\n"
                     f"  source_id      {frame.source_id}\n"
-                    f"  frame_num      {frame.frame_num}   (SAU decimate)\n"
-                    f"  → chỉ số gốc   {restore_frame_id(frame.frame_num, camera.keep_interval)}"
-                    f"   (nhân keep_interval={camera.keep_interval})\n"
+                    f"  frame_num      {frame.frame_num}   (không decimate ⇒ là chỉ số THẬT)\n"
                     f"  buf_pts        {frame.buf_pts}  = {pts_sec:.3f}s\n"
                     f"  → unix (trục chung) {unix:.3f}\n"
                     f"  khung          {frame.source_frame_width}x{frame.source_frame_height}\n"
@@ -122,10 +118,11 @@ def main() -> int:
     crane = load_crane(args.config)
     camera = crane.camera(args.cam)
     print(  # noqa: T201
-        f"cẩu {crane.crane_id} · camera {camera.id} ({camera.name}) · vai trò {camera.role}\n"
-        f"  decode: {'có' if camera.decodes else 'KHÔNG (chỉ ghi hình)'}"
-        f"   keep_interval: {camera.keep_interval}\n"
-        f"  ghi vào: {args.out}/{camera.id}/",
+        f"cẩu {crane.crane_id} · camera {camera.id} · vai trò {camera.role}\n"
+        f"  mã       {camera.code}\n"
+        f"  mô tả    {camera.name}\n"
+        f"  decode   {'có' if camera.decodes else 'KHÔNG (chỉ ghi hình)'}\n"
+        f"  ghi vào  {args.out}/{camera.code}/",
         flush=True,
     )
 
@@ -143,7 +140,7 @@ def main() -> int:
     recorder = RecordingBranch(args.out, time_sync=sync, fragments=index, on_fragment=_on_fragment)
     src_bin = make_source_bin(Gst, 0, camera)
     pipeline.add(src_bin)
-    recorder.attach(Gst, src_bin, str(camera.id))
+    recorder.attach(Gst, src_bin, camera.code)
 
     sink = Gst.ElementFactory.make("fakesink", "sink")
     sink.set_property("sync", False)
@@ -191,7 +188,7 @@ def main() -> int:
     pipeline.set_state(Gst.State.NULL)
     time.sleep(1)
 
-    files = sorted(Path(args.out, str(camera.id)).glob("*.mp4"))
+    files = sorted(Path(args.out, camera.code).glob("*.mp4"))
     total = sum(f.stat().st_size for f in files)
     elapsed = time.time() - started
     print(  # noqa: T201
@@ -199,7 +196,7 @@ def main() -> int:
         f"  đoạn mở      {len(opened)}\n"
         f"  còn trên đĩa {len(files)}  ({total / 1e6:.1f} MB"
         f" ⇒ {total / 1e6 / max(elapsed, 1) * 3600 / 1000:.1f} GB/giờ)\n"
-        f"  độ dài đoạn thật (học được)  {index.observed_duration(str(camera.id)):.2f}s\n"
+        f"  độ dài đoạn thật (học được)  {index.observed_duration(camera.code):.2f}s\n"
         f"  lỗi          {len(errors)}",
         flush=True,
     )

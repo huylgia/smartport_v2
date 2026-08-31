@@ -14,7 +14,8 @@ from ds_app.src.pipeline.sources import build_sources, make_source_bin, replace_
 
 REPO = Path(__file__).resolve().parents[3]
 GC03 = REPO / "configs" / "cranes" / "GC03.yaml"
-ENV = {f"CAM{i:02d}_RTSP": f"rtsp://h/{i}" for i in range(1, 12)}
+# Cổng riêng cho từng camera, như thực tế: 10 camera GC03 chung một IP, khác cổng.
+ENV = {f"CAM{i:02d}_RTSP": f"rtsp://10.0.0.1:{1500 + i}/s" for i in range(1, 12)}
 
 
 def _cam(role: CameraRole, cam_id: int = 1, **kw: Any) -> CameraConfig:
@@ -45,9 +46,9 @@ def test_only_decoding_cameras_reach_the_muxer(gst: Any) -> None:
     pad_map = build_sources(gst, pipeline, crane, mux)
 
     assert len(pad_map) == 8
-    assert set(pad_map.values()) == {"1", "4", "6", "7", "8", "3", "5", "10"}
-    assert "2" not in pad_map.values(), "evidence_only không được decode"
-    assert "9" not in pad_map.values(), "bottom không được decode"
+    assert len(set(pad_map.values())) == 8
+    codes = {c.code for c in crane.cameras if not c.decodes}
+    assert not (codes & set(pad_map.values())), "camera chỉ-ghi không được decode"
 
 
 def test_pad_index_is_contiguous_from_zero(gst: Any) -> None:
@@ -73,7 +74,7 @@ def test_pad_map_follows_declaration_order(gst: Any) -> None:
 
     pad_map = build_sources(gst, pipeline, crane, mux)
 
-    assert [pad_map[i] for i in range(8)] == ["1", "4", "6", "7", "8", "3", "5", "10"]
+    assert [pad_map[i] for i in range(8)] == [c.code for c in crane.model_cameras]
 
 
 # ---------------------------------------------------------------- không decimate
@@ -220,7 +221,7 @@ def test_replace_source_reattaches_recording(gst: Any) -> None:
     attached.clear()
     replace_source(gst, pipeline, 0, crane.cameras[0], recorder=recorder)
 
-    assert attached == ["1"]
+    assert attached == [crane.cameras[0].code]
 
 
 def test_replace_missing_source_is_an_error(gst: Any) -> None:
