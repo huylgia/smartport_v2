@@ -208,8 +208,8 @@ def test_output_directory_is_created_per_camera(gst: Any, tmp_path: Path) -> Non
 # ---------------------------------------------------------------- neo thời gian
 
 
-def _fragment_callback(bin_: Any) -> Any:
-    sink = bin_.get_by_name("splitmuxsink_1")
+def _fragment_callback(bin_: Any, cam_id: str = "1") -> Any:
+    sink = bin_.get_by_name(f"splitmuxsink_{cam_id}")
     return sink.signals["format-location-full"][0][0], sink
 
 
@@ -280,3 +280,45 @@ def test_fragments_are_registered_for_lookup(gst: Any, tmp_path: Path) -> None:
     assert frag is not None
     assert frag.path.endswith(".mp4")
     assert index.latest("1") is not None
+
+
+def test_fragment_filename_is_an_integer_epoch(gst: Any, tmp_path: Path) -> None:
+    """Tên file = epoch NGUYÊN giây, chính là lúc đoạn được tạo.
+
+    ``evidenced`` cần một con số để so với dấu thời gian khung; tên dạng giờ buộc nó phân
+    tích ngược, mà phân tích ngược thì phải đoán múi giờ.
+    """
+    from ds_app.src.pipeline.timesync import TimeSync
+
+    sync = TimeSync()
+    sync.anchor("cam", pts_sec=100.0, now_unix=1_700_000_000.0)
+    branch = RecordingBranch(tmp_path, time_sync=sync)
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "cam")
+
+    callback, sink = _fragment_callback(bin_, "cam")
+    path = callback(sink, 0, _Sample(pts=142 * gst.SECOND), "cam")
+
+    assert Path(path).name == "1700000042.mp4", "nguyên giây, không phần thập phân"
+    assert Path(path).stem.isdigit()
+
+
+def test_exact_fragment_time_keeps_its_precision(gst: Any, tmp_path: Path) -> None:
+    """Tên file làm tròn, nhưng mốc CHÍNH XÁC vẫn đi qua callback và sổ đoạn.
+
+    Cắt clip dùng mốc chính xác; tên file chỉ để người đọc và để sắp xếp.
+    """
+    from ds_app.src.pipeline.timesync import TimeSync
+
+    sync = TimeSync()
+    sync.anchor("cam", pts_sec=0.5, now_unix=1_700_000_000.25)
+    seen: list[float] = []
+    branch = RecordingBranch(tmp_path, time_sync=sync, on_fragment=lambda _c, _p, t: seen.append(t))
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "cam")
+
+    callback, sink = _fragment_callback(bin_, "cam")
+    path = callback(sink, 0, _Sample(pts=int(2.75 * gst.SECOND)), "cam")
+
+    assert seen == [1_700_000_002.5], "mốc chính xác giữ nguyên phần thập phân"
+    assert Path(path).name == "1700000002.mp4"

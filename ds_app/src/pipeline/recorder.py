@@ -44,7 +44,10 @@ class RecordingBranch:
 
     Args:
         output_dir: Thư mục gốc; mỗi camera một thư mục con theo ``cam_id``.
-        file_format: Mẫu ``strftime`` cho tên file, không kèm đuôi.
+        file_format: ``"epoch"`` (mặc định) ⇒ tên file là dấu thời gian epoch **nguyên
+            giây**, chính là lúc đoạn được tạo. Máy đọc được ngay mà không phải phân tích
+            chuỗi, không dính múi giờ, và sắp xếp theo tên trùng sắp xếp theo thời gian.
+            Truyền một mẫu ``strftime`` nếu cần tên cho người đọc.
         time_sync: Neo ``PTS → unix`` dùng chung với nhánh model. ``None`` ⇒ dùng đồng hồ
             tường, và khi đó mốc đoạn sẽ **trôi khỏi** dấu thời gian khung — cửa sổ cắt
             clip lệch dần mà không có gì báo. Chỉ để ``None`` khi chạy độc lập.
@@ -56,7 +59,7 @@ class RecordingBranch:
         self,
         output_dir: str | Path,
         *,
-        file_format: str = "%Y%m%d_%H%M%S",
+        file_format: str = "epoch",
         time_sync: TimeSync | None = None,
         fragments: FragmentIndex | None = None,
         on_fragment: Any | None = None,
@@ -200,9 +203,19 @@ class RecordingBranch:
     # ------------------------------------------------------------------ tên file
     def _on_new_fragment(self, _sink: Any, _fragment_id: int, sample: Any, cam_id: str) -> str:
         opened = self._fragment_unix(sample, cam_id)
-        stamp = datetime.datetime.fromtimestamp(opened, tz=datetime.timezone.utc).strftime(
-            self._file_format
-        )
+        if self._file_format == "epoch":
+            # Epoch nguyên, không phải chuỗi giờ: `evidenced` cần một CON SỐ để so với dấu
+            # thời gian khung. Tên dạng giờ buộc nó phân tích ngược, mà phân tích ngược thì
+            # phải đoán múi giờ — đoán sai một lần là lệch cả giờ.
+            #
+            # Mốc CHÍNH XÁC của đoạn vẫn là `opened` (có phần thập phân) và đi qua
+            # `on_fragment` + `FragmentIndex`; tên file chỉ để người đọc và để sắp xếp.
+            # Đoạn cách nhau ~10 s nên giây nguyên không đụng nhau.
+            stamp = str(int(opened))
+        else:
+            stamp = datetime.datetime.fromtimestamp(opened, tz=datetime.timezone.utc).strftime(
+                self._file_format
+            )
         path = str(self._root / cam_id / f"{stamp}.mp4")
         if self._fragments is not None:
             self._fragments.open_fragment(cam_id, path, opened, SPLITMUX["max-size-time"] / 1e9)
