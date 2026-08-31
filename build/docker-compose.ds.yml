@@ -33,6 +33,12 @@ x-ds: &ds
     CAM08_RTSP: ${CAM08_RTSP:-}
     CAM09_RTSP: ${CAM09_RTSP:-}
     CAM10_RTSP: ${CAM10_RTSP:-}
+  # Dùng CHUNG network với Triton, không tạo network riêng. Hai lý do:
+  #   * ds_app sẽ gọi Triton qua gRPC ở Phase 3b — cùng network là chỗ nó cần ở.
+  #   * Dải địa chỉ của Docker là tài nguyên hữu hạn trên máy dùng chung. Mỗi `compose run`
+  #     tạo thêm một network; hết dải là `all predefined address pools have been fully
+  #     subnetted` và KHÔNG service nào lên được, kể cả của người khác.
+  networks: [craneops]
   volumes:
     # Mã nguồn mount chỉ-đọc: sửa code là chạy lại thấy ngay, không phải build lại image.
     - ..:/app:ro
@@ -79,3 +85,8 @@ services:
     <<: *ds
     command: python3 ds_app/cmd/doctor.py
     restart: "no"
+
+networks:
+  # `name:` cố định để cả hai compose trỏ vào MỘT network, dù tên project khác nhau.
+  craneops:
+    name: craneops

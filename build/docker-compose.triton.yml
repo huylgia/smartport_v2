@@ -56,9 +56,15 @@ services:
       - /dev/shm:size=512m
     command: >
       python3 -m triton.modelsvc.main --repo /models
-    # ⚠️ Tập GPU cấp ở đây PHẢI trùng với lúc lấy vân tay cấp phép — UUID của GPU nằm
-    # trong vân tay, nên "device=0" và "all" cho hai vân tay khác nhau.
-    # Xem internal/pkg/security/fingerprint.py.
+    # Cùng network với `triton`. Không khai thì compose tạo thêm một network `_default`
+    # chỉ để chứa service này — hai network cho hai service không cần cách ly nhau, và
+    # trên máy dùng chung thì dải địa chỉ của Docker là tài nguyên hữu hạn: hết dải là
+    # `all predefined address pools have been fully subnetted`, không service nào lên được.
+    networks: [craneops]
+    # Tập GPU cấp ở đây KHÔNG ảnh hưởng tới vân tay cấp phép: UUID của GPU đã được bỏ
+    # khỏi vân tay có chủ đích, vì nó đo cách cấp GPU cho container chứ không đo cái máy
+    # — "device=0" và "all" từng cho hai vân tay khác nhau trên cùng một máy.
+    # Xem internal/pkg/security/fingerprint.py và DN-014.
     deploy:
       resources:
         limits:
