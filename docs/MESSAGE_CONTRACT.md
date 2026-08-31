@@ -51,9 +51,18 @@ Nguồn sự thật là `common/message.py` (pydantic v2). Tài liệu này gi�
 ### `craneops.perception.*`
 
 `segment_hint` trỏ tới file segment chứa khung này — đó là cách `evidenced` biết cắt clip
-ở đâu. Producer biết chính xác segment nào đang ghi lúc nó xử lý khung này, nên nó nói ra;
-tìm lại bằng cách quét thư mục theo dấu thời gian là suy đoán, và suy đoán sai ở ranh giới
-giữa hai segment.
+ở đâu. Producer tra được nó chính xác, nên nó nói ra; tìm lại bằng cách quét thư mục theo
+dấu thời gian là suy đoán, và suy đoán sai ở ranh giới giữa hai segment.
+
+⚠️ Hai điều kiện để giá trị này đúng, cả hai đều dễ mất mà không có triệu chứng:
+
+1. **Mốc mở đoạn và dấu thời gian khung phải trên CÙNG một trục.** Nhánh ghi và nhánh
+   model đóng dấu bằng hai đồng hồ khác nhau thì chúng trôi khỏi nhau và cửa sổ cắt clip
+   lệch dần. Cả hai đi qua `ds_app/src/pipeline/timesync.py` — neo `PTS → unix` một lần
+   cho mỗi camera. Đo trên camera thật: khoảng cách giữa các mốc đoạn là **10,00 s chính
+   xác**, thứ chỉ có được trên trục suy từ media.
+2. **Phải tra theo cửa sổ, không phải lấy đoạn mới nhất.** Nhánh ghi có thể chậm hơn nhánh
+   model cả một đoạn, nên đoạn mới nhất thường không phải đoạn chứa khung đang xét.
 
 `fps` là fps của **nguồn** (30 với smartport), không phải fps sau decimate. `frame_id` là
 chỉ số khung **gốc**, đã khôi phục qua `restore_frame_id`. Dùng `frame_ts` có sẵn, đừng tự

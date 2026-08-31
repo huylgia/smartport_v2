@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ds_app.src.pipeline.elements import MUXER, RECORD_QUEUE, SPLITMUX, apply_props, make
+from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
 
 __all__ = ["RecordingBranch"]
 
@@ -44,9 +45,11 @@ class RecordingBranch:
     Args:
         output_dir: Thư mục gốc; mỗi camera một thư mục con theo ``cam_id``.
         file_format: Mẫu ``strftime`` cho tên file, không kèm đuôi.
-        on_fragment: Gọi ``(cam_id, path, mo_luc_unix)`` mỗi khi mở một đoạn mới. Đây là
-            cách ``evidenced`` biết đoạn nào chứa khoảnh khắc nào — thay cho việc quét thư
-            mục rồi đoán theo tên file, vốn đoán sai ở ranh giới hai đoạn.
+        time_sync: Neo ``PTS → unix`` dùng chung với nhánh model. ``None`` ⇒ dùng đồng hồ
+            tường, và khi đó mốc đoạn sẽ **trôi khỏi** dấu thời gian khung — cửa sổ cắt
+            clip lệch dần mà không có gì báo. Chỉ để ``None`` khi chạy độc lập.
+        fragments: Sổ đoạn để tra "khoảnh khắc T nằm ở đoạn nào".
+        on_fragment: Gọi ``(cam_id, path, mo_luc_unix)`` mỗi khi mở một đoạn mới.
     """
 
     def __init__(
@@ -54,10 +57,14 @@ class RecordingBranch:
         output_dir: str | Path,
         *,
         file_format: str = "%Y%m%d_%H%M%S",
+        time_sync: TimeSync | None = None,
+        fragments: FragmentIndex | None = None,
         on_fragment: Any | None = None,
     ) -> None:
         self._root = Path(output_dir)
         self._file_format = file_format
+        self._time_sync = time_sync
+        self._fragments = fragments
         self._on_fragment = on_fragment
         self._Gst: Any = None
         """``Gst`` nhận được ở :meth:`attach`.
@@ -192,14 +199,34 @@ class RecordingBranch:
 
     # ------------------------------------------------------------------ tên file
     def _on_new_fragment(self, _sink: Any, _fragment_id: int, sample: Any, cam_id: str) -> str:
-        opened = _sample_unix(sample)
+        opened = self._fragment_unix(sample, cam_id)
         stamp = datetime.datetime.fromtimestamp(opened, tz=datetime.timezone.utc).strftime(
             self._file_format
         )
         path = str(self._root / cam_id / f"{stamp}.mp4")
+        if self._fragments is not None:
+            self._fragments.open_fragment(cam_id, path, opened, SPLITMUX["max-size-time"] / 1e9)
         if self._on_fragment is not None:
             self._on_fragment(cam_id, path, opened)
         return path
+
+    def _fragment_unix(self, sample: Any, cam_id: str) -> float:
+        """Mốc mở đoạn, **trên cùng trục mà probe đóng dấu khung**.
+
+        Đồng hồ tường chỉ là đường lui khi chưa neo được (vài buffer đầu của RTSP có thể
+        không có PTS). Lui hoài nghĩa là mốc đoạn và ``detect_time`` nằm trên hai trục — và
+        hậu quả là cửa sổ cắt clip lệch dần, im lặng.
+        """
+        now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
+        if self._time_sync is None or sample is None:
+            return now
+        buf = sample.get_buffer()
+        pts = getattr(buf, "pts", None) if buf is not None else None
+        if pts is None or pts == self._Gst.CLOCK_TIME_NONE:
+            return now
+        pts_sec = pts / self._Gst.SECOND
+        base = self._time_sync.anchor(cam_id, pts_sec, now)
+        return base.to_unix(pts_sec) if base is not None else now
 
 
 # ---------------------------------------------------------------------- trợ giúp
@@ -235,12 +262,3 @@ def _configure_muxer(Gst: Any, sink: Any) -> None:
         raise RuntimeError(f"muxer-properties không phân tích được: {props!r}")
     sink.set_property("muxer-factory", MUXER["factory"])
     sink.set_property("muxer-properties", structure)
-
-
-def _sample_unix(sample: Any) -> float:
-    """Thời điểm mở đoạn, epoch giây. Hiện dùng đồng hồ tường.
-
-    TODO(Phase 7): neo vào cùng trục pts→unix mà probe đóng dấu cho khung, nếu không
-    ``detect_time`` và mốc bắt đầu đoạn sẽ trôi khỏi nhau và cửa sổ cắt clip lệch dần.
-    """
-    return datetime.datetime.now(tz=datetime.timezone.utc).timestamp()

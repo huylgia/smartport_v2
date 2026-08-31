@@ -203,3 +203,80 @@ def test_fragment_path_is_reported_to_the_caller(gst: Any, tmp_path: Path) -> No
 def test_output_directory_is_created_per_camera(gst: Any, tmp_path: Path) -> None:
     _attach(gst, tmp_path)
     assert (tmp_path / "1").is_dir()
+
+
+# ---------------------------------------------------------------- neo thời gian
+
+
+def _fragment_callback(bin_: Any) -> Any:
+    sink = bin_.get_by_name("splitmuxsink_1")
+    return sink.signals["format-location-full"][0][0], sink
+
+
+class _Sample:
+    def __init__(self, pts: int) -> None:
+        self._buf = type("B", (), {"pts": pts})()
+
+    def get_buffer(self) -> Any:
+        return self._buf
+
+
+def test_fragment_time_uses_the_shared_axis_not_the_wall_clock(gst: Any, tmp_path: Path) -> None:
+    """⚠️ Mốc đoạn phải nằm trên CÙNG trục mà probe đóng dấu khung.
+
+    Hai đồng hồ khác nhau thì chúng trôi khỏi nhau, mọi thứ vẫn chạy, và chỉ có cửa sổ cắt
+    clip lệch dần — một lỗi không có triệu chứng.
+    """
+    from ds_app.src.pipeline.timesync import TimeSync
+
+    sync = TimeSync()
+    sync.anchor("1", pts_sec=100.0, now_unix=1_700_000_000.0)
+
+    seen: list[float] = []
+    branch = RecordingBranch(tmp_path, time_sync=sync, on_fragment=lambda _c, _p, t: seen.append(t))
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    callback, sink = _fragment_callback(bin_)
+    callback(sink, 0, _Sample(pts=130 * gst.SECOND), "1")
+
+    assert seen == [1_700_000_030.0], "PTS +30s ⇒ unix +30s trên trục đã neo"
+
+
+def test_fragment_falls_back_to_wall_clock_without_a_time_base(gst: Any, tmp_path: Path) -> None:
+    """Chưa neo được (buffer đầu không có PTS) thì vẫn phải ra một mốc dùng được."""
+    from ds_app.src.pipeline.timesync import TimeSync
+
+    seen: list[float] = []
+    branch = RecordingBranch(
+        tmp_path, time_sync=TimeSync(), on_fragment=lambda _c, _p, t: seen.append(t)
+    )
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    callback, sink = _fragment_callback(bin_)
+    callback(sink, 0, _Sample(pts=gst.CLOCK_TIME_NONE), "1")
+
+    assert len(seen) == 1
+    assert seen[0] > 1_700_000_000.0, "đồng hồ tường, không phải 0"
+
+
+def test_fragments_are_registered_for_lookup(gst: Any, tmp_path: Path) -> None:
+    """Sổ đoạn là cách ``evidenced`` biết khoảnh khắc nào nằm ở đoạn nào."""
+    from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
+
+    sync = TimeSync()
+    sync.anchor("1", pts_sec=0.0 + 1e-9, now_unix=1_700_000_000.0)
+    index = FragmentIndex()
+    branch = RecordingBranch(tmp_path, time_sync=sync, fragments=index)
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    callback, sink = _fragment_callback(bin_)
+    callback(sink, 0, _Sample(pts=10 * gst.SECOND), "1")
+    callback(sink, 1, _Sample(pts=20 * gst.SECOND), "1")
+
+    frag, _ = index.resolve("1", 1_700_000_012.0)
+    assert frag is not None
+    assert frag.path.endswith(".mp4")
+    assert index.latest("1") is not None
