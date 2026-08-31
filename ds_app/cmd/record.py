@@ -45,7 +45,7 @@ def _args() -> argparse.Namespace:
     ap.add_argument("--cam", type=int, required=True, help="id camera trong config")
     ap.add_argument("--out", default="/var/lib/craneops/rec")
     ap.add_argument("--duration", type=int, default=60, help="giây; 0 = chạy mãi")
-    ap.add_argument("--segment-sec", type=int, default=10)
+    ap.add_argument("--segment-sec", type=float, default=10.0, help="độ dài đoạn, giây")
     ap.add_argument("--retain-sec", type=int, default=1800, help="0 = không dọn")
     ap.add_argument(
         "--show-meta",
@@ -122,7 +122,7 @@ def main() -> int:
         f"  mã       {camera.code}\n"
         f"  mô tả    {camera.name}\n"
         f"  decode   {'có' if camera.decodes else 'KHÔNG (chỉ ghi hình)'}\n"
-        f"  ghi vào  {args.out}/{camera.code}/",
+        f"  ghi vào  {args.out}/{camera.code}/   (đoạn ~{args.segment_sec:g}s)",
         flush=True,
     )
 
@@ -137,7 +137,13 @@ def main() -> int:
         gap = f"  (+{unix - opened[-2][1]:.2f}s)" if len(opened) > 1 else ""
         print(f"[đoạn] {Path(path).name}   mở lúc {unix:.3f}{gap}", flush=True)  # noqa: T201
 
-    recorder = RecordingBranch(args.out, time_sync=sync, fragments=index, on_fragment=_on_fragment)
+    recorder = RecordingBranch(
+        args.out,
+        segment_sec=args.segment_sec,
+        time_sync=sync,
+        fragments=index,
+        on_fragment=_on_fragment,
+    )
     src_bin = make_source_bin(Gst, 0, camera)
     pipeline.add(src_bin)
     recorder.attach(Gst, src_bin, camera.code)

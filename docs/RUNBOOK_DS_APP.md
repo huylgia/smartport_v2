@@ -148,9 +148,22 @@ lỗi) nhưng cách sửa hoàn toàn khác.
 ### 5.2 Ghi hình
 
 ```bash
-make record CAM=1 DUR=60           # 60 giây, rồi dừng
-make record CAM=1 DUR=0            # chạy mãi, Ctrl-C để dừng
+make record CAM=1 DUR=60                    # chạy 60 giây rồi dừng
+make record CAM=1 DUR=0                     # chạy mãi, Ctrl-C để dừng
+SEGMENT_SEC=60 make record CAM=1 DUR=0      # mỗi đoạn 60 giây thay vì 10
 ```
+
+`DUR` là **thời gian chạy**, `SEGMENT_SEC` là **độ dài mỗi đoạn** — hai thứ khác nhau. Đặt
+lâu dài thì để `SEGMENT_SEC` trong `build/.env.ds`.
+
+⚠️ **Độ dài đoạn chính là độ trễ tệ nhất của bằng chứng.** `evidenced` phải chờ một đoạn
+**đóng** mới cắt được từ nó (mp4 mới có `moov` đầy đủ), nên đoạn 60 s nghĩa là một khoảnh
+khắc vừa xảy ra có thể phải chờ tới 60 s. Đoạn ngắn thì ngược lại: nhiều file hơn, nhiều
+lần đóng/mở hơn. Cửa sổ evidence xa nhất của hệ là `-35 s`, nên đoạn **10 s là mặc định hợp
+lý**; tăng lên chỉ khi thật sự cần ít file.
+
+Đo thật với `SEGMENT_SEC=60`: đoạn cách nhau đúng `+60.00s`, độ dài học được `60.00s`,
+0,7 GB/giờ — bằng đúng mức của đoạn 10 s, vì cùng một bitstream chỉ khác cách chia file.
 
 ```
 cẩu GC03 · camera 1 · vai trò ccode

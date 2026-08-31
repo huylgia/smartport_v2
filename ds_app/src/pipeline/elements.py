@@ -90,13 +90,13 @@ SOURCE_QUEUE: dict[str, Any] = {
 """Hàng đợi giữa mỗi nguồn và ``nvstreammux``."""
 
 SPLITMUX: dict[str, Any] = {
-    # Ghi ra file mới mỗi 10 s.
+    # MẶC ĐỊNH cho độ dài đoạn — `RecordingBranch(segment_sec=...)` ghi đè nó, và luôn ghi
+    # đè, nên đổi con số ở đây chỉ đổi giá trị dự phòng.
     #
     # ⚠️ splitmuxsink CHỈ cắt tại keyframe, nên độ dài thật là bội số của GOP:
     #     độ dài thật = ceil(giới hạn / GOP) lần GOP
-    # Nguồn cảng có GOP ≈ 1,7 s (đo 2026-08-30) ⇒ 10 s cho ra ~10,2 s. Nếu về sau camera
-    # được cấu hình GOP dài hơn giới hạn này, mỗi file sẽ nhảy lên một GOP trọn vẹn —
-    # `evidenced` tính cửa sổ theo độ dài THẬT, nên phải đo lại chứ không giả định 10 s.
+    # Nguồn cảng có GOP ≈ 1,7 s (đo 2026-08-30) ⇒ 10 s cho ra ~10,2 s. `evidenced` tính cửa
+    # sổ theo độ dài THẬT (FragmentIndex.observed_duration), không theo con số này.
     "max-size-time": 10_000_000_000,
     # Đóng file ở luồng riêng: đóng đồng bộ chặn nhánh ghi đúng lúc chuyển file.
     "async-finalize": True,

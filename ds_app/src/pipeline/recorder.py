@@ -48,6 +48,14 @@ class RecordingBranch:
             giây**, chính là lúc đoạn được tạo. Máy đọc được ngay mà không phải phân tích
             chuỗi, không dính múi giờ, và sắp xếp theo tên trùng sắp xếp theo thời gian.
             Truyền một mẫu ``strftime`` nếu cần tên cho người đọc.
+        segment_sec: Độ dài đoạn mong muốn, giây.
+
+            ⚠️ Đây là **giới hạn**, không phải độ dài thật. ``splitmuxsink`` chỉ cắt tại
+            keyframe nên độ dài thật là ``ceil(giới hạn / GOP) lần GOP``. Đoạn dài hơn thì
+            ít file hơn nhưng đoạn **đang mở** kéo dài hơn — và ``evidenced`` phải chờ một
+            đoạn đóng mới cắt được từ nó, nên độ dài đoạn chính là độ trễ tệ nhất của
+            bằng chứng.
+
         time_sync: Neo ``PTS → unix`` dùng chung với nhánh model. ``None`` ⇒ dùng đồng hồ
             tường, và khi đó mốc đoạn sẽ **trôi khỏi** dấu thời gian khung — cửa sổ cắt
             clip lệch dần mà không có gì báo. Chỉ để ``None`` khi chạy độc lập.
@@ -59,12 +67,16 @@ class RecordingBranch:
         self,
         output_dir: str | Path,
         *,
+        segment_sec: float = 10.0,
         file_format: str = "epoch",
         time_sync: TimeSync | None = None,
         fragments: FragmentIndex | None = None,
         on_fragment: Any | None = None,
     ) -> None:
         self._root = Path(output_dir)
+        if segment_sec <= 0:
+            raise ValueError(f"segment_sec phải dương, nhận {segment_sec}")
+        self._segment_sec = float(segment_sec)
         self._file_format = file_format
         self._time_sync = time_sync
         self._fragments = fragments
@@ -122,6 +134,7 @@ class RecordingBranch:
 
         sink = make(Gst, "splitmuxsink", f"splitmuxsink_{camera_code}")
         apply_props(sink, SPLITMUX)
+        sink.set_property("max-size-time", int(self._segment_sec * 1e9))
         _configure_muxer(Gst, sink)
 
         # Chặn buffer không có PTS TRƯỚC khi nó tới muxer — xem _drop_pts_less.
@@ -194,7 +207,7 @@ class RecordingBranch:
 
         gop = statistics.median(gaps)
         self._gop_reported.add(camera_code)
-        limit = SPLITMUX["max-size-time"] / 1e9
+        limit = self._segment_sec
         real = gop if gop >= limit else (int(limit / gop) + (limit % gop > 0)) * gop
         print(  # noqa: T201
             f"[record] {camera_code}: GOP nguồn {gop:.2f}s, giới hạn {limit:.0f}s "
@@ -220,9 +233,7 @@ class RecordingBranch:
             )
         path = str(self._root / camera_code / f"{stamp}.mp4")
         if self._fragments is not None:
-            self._fragments.open_fragment(
-                camera_code, path, opened, SPLITMUX["max-size-time"] / 1e9
-            )
+            self._fragments.open_fragment(camera_code, path, opened, self._segment_sec)
         if self._on_fragment is not None:
             self._on_fragment(camera_code, path, opened)
         return path

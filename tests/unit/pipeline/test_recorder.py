@@ -322,3 +322,51 @@ def test_exact_fragment_time_keeps_its_precision(gst: Any, tmp_path: Path) -> No
 
     assert seen == [1_700_000_002.5], "mốc chính xác giữ nguyên phần thập phân"
     assert Path(path).name == "1700000002.mp4"
+
+
+# ---------------------------------------------------------------- độ dài đoạn
+
+
+def test_segment_length_is_configurable(gst: Any, tmp_path: Path) -> None:
+    """Độ dài đoạn phải đặt được — trước đây nó nằm cứng trong elements.py."""
+    branch = RecordingBranch(tmp_path, segment_sec=60)
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    assert bin_.get_by_name("splitmuxsink_1").props["max-size-time"] == 60_000_000_000
+
+
+def test_segment_length_defaults_to_ten_seconds(gst: Any, tmp_path: Path) -> None:
+    branch = RecordingBranch(tmp_path)
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    assert bin_.get_by_name("splitmuxsink_1").props["max-size-time"] == 10_000_000_000
+
+
+def test_configured_length_reaches_the_fragment_index(gst: Any, tmp_path: Path) -> None:
+    """Sổ đoạn phải dùng ĐỘ DÀI ĐÃ ĐẶT, không phải hằng số mặc định.
+
+    Lấy nhầm hằng số thì cửa sổ tra đoạn sai đúng bằng tỉ lệ giữa hai con số, và sai im
+    lặng: `resolve()` vẫn trả về một đoạn, chỉ là đoạn sai ở gần ranh giới.
+    """
+    from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
+
+    sync = TimeSync()
+    sync.anchor("1", pts_sec=1.0, now_unix=1_700_000_000.0)
+    index = FragmentIndex()
+    branch = RecordingBranch(tmp_path, segment_sec=60, time_sync=sync, fragments=index)
+    bin_ = _ready_source_bin(gst)
+    branch.attach(gst, bin_, "1")
+
+    callback, sink = _fragment_callback(bin_)
+    callback(sink, 0, _Sample(pts=gst.SECOND), "1")
+
+    frag = index.latest("1")
+    assert frag is not None
+    assert frag.end_unix - frag.start_unix == 60.0
+
+
+def test_zero_segment_length_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="phải dương"):
+        RecordingBranch(tmp_path, segment_sec=0)
