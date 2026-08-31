@@ -1,0 +1,351 @@
+"""Config cẩu: validate fail-fast, nội suy secret, và suy ra camera nào được decode."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from common.config import CameraConfig, ConfigError, OcrRoi, load_crane
+from common.enum import CameraRole, Lane
+
+REPO = Path(__file__).resolve().parents[2]
+GC03 = REPO / "configs" / "cranes" / "GC03.yaml"
+
+ENV = {  # pragma: allowlist secret — URL giả, cố ý có dạng có credential
+    f"CAM{i:02d}_RTSP": f"rtsp://u:p@10.0.0.{i}:554/s" for i in range(1, 12)
+}
+
+
+def _minimal(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "crane_id": "GC03",
+        "berth_no": "TS03",
+        "num_lane": 3,
+        "cameras": [
+            {"id": 1, "name": "ccode", "role": "ccode", "rtsp_record": "rtsp://x"},
+            {"id": 9, "name": "day", "role": "bottom", "rtsp_record": "rtsp://y"},
+        ],
+    }
+    base.update(over)
+    return base
+
+
+# ---------------------------------------------------------------- file thật
+
+
+def test_gc03_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """File cấu hình thật trong repo phải load được — nếu không, CI sạch mà deploy chết."""
+    cfg = load_crane(GC03, env=ENV)
+    assert cfg.crane_id == "GC03"
+    assert len(cfg.cameras) == 10
+
+
+def test_gc03_decode_set_matches_the_nvdec_budget() -> None:
+    """8/10 camera vào nhánh model; `bottom` và `evidence_only` chỉ ghi hình.
+
+    Đây là ràng buộc NVDEC, không phải sở thích: decode cả 10 camera 2688x1520@30 vượt
+    trần một NVDEC của GA106. Xem HARDWARE_BUDGET §2.2.
+    """
+    cfg = load_crane(GC03, env=ENV)
+    assert len(cfg.model_cameras) == 8
+    assert len(cfg.record_cameras) == 10, "MỌI camera phải được ghi hình"
+    assert {c.id for c in cfg.cameras} - {c.id for c in cfg.model_cameras} == {2, 9}
+
+
+def test_record_covers_every_camera_including_undecoded() -> None:
+    """Ảnh bằng chứng 6 mặt cần cả camera không decode — nên nhánh ghi phủ hết."""
+    cfg = load_crane(GC03, env=ENV)
+    assert [c.id for c in cfg.record_cameras] == [c.id for c in cfg.cameras]
+
+
+# ---------------------------------------------------------------- secret
+
+
+def test_env_reference_is_resolved() -> None:
+    cfg = load_crane(GC03, env=ENV)
+    assert cfg.camera(1).rtsp_record == ENV["CAM01_RTSP"]
+    assert "${" not in cfg.camera(1).rtsp_record
+
+
+def test_missing_env_var_fails_with_the_variable_name(tmp_path: Path) -> None:
+    """Thiếu secret phải nói RÕ thiếu biến nào — không thì người vận hành mò từng camera."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {"id": 1, "name": "a", "role": "ccode", "rtsp_record": "${CAM_KHONG_CO}"},
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="CAM_KHONG_CO"):
+        load_crane(p, env={})
+
+
+def test_partial_interpolation_is_rejected(tmp_path: Path) -> None:
+    """Chỉ nhận TOÀN BỘ chuỗi là tham chiếu; ghép từ nhiều mảnh bị TỪ CHỐI.
+
+    Ghép URL (``rtsp://${USER}:${PW}@host``) là cách dễ nhất để lộ mật khẩu vào log khi
+    một mảnh thiếu: chuỗi nửa vời vẫn "trông hợp lệ" và vẫn được in ra. Trước đây nó chỉ
+    được để nguyên; nay validator chặn hẳn, vì một URL còn ``${...}`` không bao giờ kết
+    nối được — hỏng lúc load tốt hơn hỏng lúc chạy.
+    """
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {"id": 1, "name": "a", "role": "ccode", "rtsp_record": "rtsp://${U}@h/s"},
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="chưa nội suy"):
+        load_crane(p, env={"U": "bimat"})
+
+
+# ---------------------------------------------------------------- fail-fast
+
+
+def test_typo_in_key_is_rejected(tmp_path: Path) -> None:
+    """`extra="forbid"` cho config: gõ sai khoá là lỗi lúc load.
+
+    Ngược với message contract (`extra="ignore"`), và cố ý: message đi qua ranh giới
+    process nên phải chịu được nâng cấp lệch pha; config thì không.
+    """
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {
+                        "id": 1,
+                        "name": "a",
+                        "role": "ccode",
+                        "rtsp_record": "rtsp://h/s",
+                        "rstp_model": "sai",
+                    },
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="rstp_model"):
+        load_crane(p, env={})
+
+
+def test_duplicate_camera_id_is_rejected(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {"id": 1, "name": "a", "role": "ccode", "rtsp_record": "rtsp://h/s"},
+                    {"id": 1, "name": "b", "role": "tcode", "rtsp_record": "rtsp://h/s"},
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="trùng"):
+        load_crane(p, env={})
+
+
+def test_config_with_no_model_camera_is_rejected(tmp_path: Path) -> None:
+    """Không camera nào decode ⇒ hệ chạy mà không bao giờ ra kết quả.
+
+    Loại lỗi im lặng tốn nhiều giờ nhất để lần, và gần như luôn là gõ sai `role`.
+    """
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                cameras=[
+                    {"id": 9, "name": "day", "role": "bottom", "rtsp_record": "rtsp://h/s"},
+                ]
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="không camera nào chạy model"):
+        load_crane(p, env={})
+
+
+def test_lane_zone_beyond_num_lane_is_rejected(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            _minimal(
+                num_lane=2,
+                cameras=[
+                    {
+                        "id": 3,
+                        "name": "a",
+                        "role": "tcode",
+                        "rtsp_record": "rtsp://h/s",
+                        "lane_zones": {"3": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]},
+                    },
+                ],
+            )
+        )
+    )
+    with pytest.raises(ConfigError, match="chỉ có 2 lane"):
+        load_crane(p, env={})
+
+
+def test_ocr_rois_on_a_non_ccode_camera_is_rejected() -> None:
+    with pytest.raises(ValueError, match="chỉ vai trò 'ccode'"):
+        CameraConfig(
+            id=3,
+            name="a",
+            role=CameraRole.TCODE,
+            rtsp_record="rtsp://h/s",
+            ocr_rois=[
+                OcrRoi(
+                    shape="horizontal",
+                    lane=Lane.ONE,
+                    roi=(0.1, 0.1, 0.5, 0.5),
+                    input_size=(640, 672),
+                )
+            ],
+        )
+
+
+def test_lane_zones_on_a_camera_that_never_decodes_is_rejected() -> None:
+    """Khai vùng lane cho camera không chạy model là lỗi thầm lặng: nó không bao giờ dùng tới."""
+    with pytest.raises(ValueError, match="không chạy model"):
+        CameraConfig(
+            id=9,
+            name="day",
+            role=CameraRole.BOTTOM,
+            rtsp_record="rtsp://h/s",
+            lane_zones={Lane.ONE: [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]},
+        )
+
+
+def test_relative_coordinates_reject_pixels() -> None:
+    """Dán nhầm toạ độ pixel vào trường mong đợi [0..1] — lỗi hay gặp nhất. Xem DN-002."""
+    with pytest.raises(ValueError):
+        CameraConfig(
+            id=3,
+            name="a",
+            role=CameraRole.TCODE,
+            rtsp_record="rtsp://h/s",
+            lane_zones={Lane.ONE: [(505.0, 81.0), (1115.0, 81.0), (1115.0, 662.0)]},
+        )
+
+
+def test_inverted_roi_is_rejected() -> None:
+    with pytest.raises(ValueError, match="lật ngược"):
+        OcrRoi(shape="vertical", lane=Lane.ONE, roi=(0.5, 0.5, 0.1, 0.1), input_size=(576, 608))
+
+
+# ---------------------------------------------------------------- decimate
+
+
+def test_keep_interval_defaults_per_role() -> None:
+    """Chu kỳ giữ khung suy từ chu kỳ xử lý thật của rule, ở nguồn 30 fps."""
+
+    def mk(role: CameraRole) -> CameraConfig:
+        return CameraConfig(id=1, name="x", role=role, rtsp_record="rtsp://h/s")
+
+    assert mk(CameraRole.CCODE).keep_interval == 6  # 5 fps
+    assert mk(CameraRole.CRANE).keep_interval == 9  # 3,3 fps
+    assert mk(CameraRole.TCODE).keep_interval == 15  # 2 fps
+
+
+def test_undecoded_camera_has_no_keep_interval() -> None:
+    cam = CameraConfig(id=9, name="day", role=CameraRole.BOTTOM, rtsp_record="rtsp://h/s")
+    assert cam.keep_interval == 0
+    assert not cam.decodes
+
+
+def test_keep_interval_round_trips_through_restore_frame_id() -> None:
+    """Con số đặt cho decoder PHẢI là con số dùng để khôi phục chỉ số khung.
+
+    Một phép ``±1`` lạc giữa hai chỗ làm mọi dấu thời gian lệch theo đúng tỉ lệ decimate,
+    và không có gì báo lỗi — chỉ là cửa sổ cắt clip sai. Xem internal/pkg/timebase.py.
+    """
+    from internal.pkg.timebase import restore_frame_id
+
+    cam = CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s")
+    assert restore_frame_id(10, cam.keep_interval) == 60
+
+
+def test_explicit_drop_frame_interval_overrides_the_role_default() -> None:
+    cam = CameraConfig(
+        id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s", drop_frame_interval=3
+    )
+    assert cam.keep_interval == 3
+
+
+# ---------------------------------------------------------------- thứ tự nguồn
+
+
+def test_model_camera_order_is_the_streammux_pad_order() -> None:
+    """Thứ tự khai báo = `pad_index` của nvstreammux, và probe dùng nó để biết khung của ai.
+
+    Đổi thứ tự trong YAML là đổi ánh xạ khung→camera, nên test này khoá nó lại.
+    """
+    cfg = load_crane(GC03, env=ENV)
+    assert [c.id for c in cfg.model_cameras] == [1, 4, 6, 7, 8, 3, 5, 10]
+
+
+def test_unknown_camera_id_lists_the_known_ones() -> None:
+    cfg = load_crane(GC03, env=ENV)
+    with pytest.raises(KeyError, match="đang có"):
+        cfg.camera(99)
+
+
+def test_missing_file_says_which_path(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="khong-ton-tai"):
+        load_crane(tmp_path / "khong-ton-tai.yaml")
+
+
+def test_crane_config_is_frozen() -> None:
+    """Config bất biến: không service nào được sửa nó lúc chạy."""
+    cfg = load_crane(GC03, env=ENV)
+    with pytest.raises(ValueError):
+        cfg.crane_id = "GC99"
+
+
+# ---------------------------------------------------------------- URL RTSP
+
+
+def test_url_with_a_delimiter_is_rejected() -> None:
+    """⚠️ Lỗi đã xảy ra thật: trích URL từ định dạng phân tách bằng `|` mà quên dừng.
+
+    GStreamer KHÔNG báo lỗi — nó giữ phần thừa trong path và gửi
+    `SETUP //CH001.sdp|h265|10|||`. Camera đang dùng tình cờ bỏ qua, nên nó chạy được và
+    che mất lỗi cho tới khi gặp firmware khác.
+    """
+    with pytest.raises(ValueError, match="phân tách"):
+        CameraConfig(
+            id=1,
+            name="x",
+            role=CameraRole.CCODE,
+            rtsp_record="rtsp://h:1508//CH001.sdp|h265|10|||",
+        )
+
+
+def test_non_rtsp_scheme_is_rejected() -> None:
+    with pytest.raises(ValueError, match="rtsp://"):
+        CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="http://h/s")
+
+
+def test_unresolved_placeholder_is_rejected() -> None:
+    """Biến chưa nội suy lọt xuống đây nghĩa là secret không được nạp — đừng chạy tiếp."""
+    with pytest.raises(ValueError, match="chưa nội suy"):
+        CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="${CAM01_RTSP}")
+
+
+def test_rtsps_is_accepted() -> None:
+    cam = CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsps://h/s")
+    assert cam.rtsp_record.startswith("rtsps://")
+
+
+def test_whitespace_is_trimmed_not_tolerated_inside() -> None:
+    cam = CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="  rtsp://h/s  ")
+    assert cam.rtsp_record == "rtsp://h/s"
+    with pytest.raises(ValueError, match="phân tách"):
+        CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s extra")
