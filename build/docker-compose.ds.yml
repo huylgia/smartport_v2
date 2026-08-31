@@ -1,0 +1,80 @@
+# `ds_app` — DeepStream: RTSP → ghi hình passthrough + nhánh model.
+#
+#   docker compose --env-file build/.env.ds -f build/docker-compose.ds.yml run --rm record
+#
+# File env RIÊNG với Triton (`build/.env.triton`): hai service có ngân sách tài nguyên,
+# tập secret và vòng đời khác hẳn nhau. Gộp chung thì đổi một biến của Triton lại phải
+# khởi động lại ds_app, và ngược lại.
+
+name: craneops-ds
+
+x-ds: &ds
+  image: ${DS_IMAGE:-craneops-ds:dev}
+  build:
+    context: ..
+    dockerfile: build/ds_app.Dockerfile
+  working_dir: /app
+  environment: &ds-env
+    # ⚠️ BẮT BUỘC. Plugin `nvstreammux` đọc biến này LÚC NẠP để chọn mux cũ hay mới. DS8
+    # mặc định dùng mux MỚI, vốn bỏ qua toàn bộ thuộc tính của mux cũ mà code đang đặt —
+    # và hậu quả là nó không bao giờ đẩy một batch nào, im lặng.
+    USE_NEW_NVSTREAMMUX: "no"
+    NVIDIA_DRIVER_CAPABILITIES: all
+    PYTHONUNBUFFERED: "1"
+    GST_DEBUG: ${GST_DEBUG:-1}
+    # URL camera — secret, nạp từ .env.ds
+    CAM01_RTSP: ${CAM01_RTSP:-}
+    CAM02_RTSP: ${CAM02_RTSP:-}
+    CAM03_RTSP: ${CAM03_RTSP:-}
+    CAM04_RTSP: ${CAM04_RTSP:-}
+    CAM05_RTSP: ${CAM05_RTSP:-}
+    CAM06_RTSP: ${CAM06_RTSP:-}
+    CAM07_RTSP: ${CAM07_RTSP:-}
+    CAM08_RTSP: ${CAM08_RTSP:-}
+    CAM09_RTSP: ${CAM09_RTSP:-}
+    CAM10_RTSP: ${CAM10_RTSP:-}
+  volumes:
+    # Mã nguồn mount chỉ-đọc: sửa code là chạy lại thấy ngay, không phải build lại image.
+    - ..:/app:ro
+    # ⚠️ Đường dẫn tương đối ở đây tính từ thư mục CHỨA COMPOSE (build/), không phải gốc
+    # repo — mặc định cũ `./rec` làm video rơi vào build/rec/ và suýt bị commit.
+    - ${CRANEOPS_REC_DIR:-../.rec}:/rec
+  deploy: &ds-limits
+    resources:
+      limits:
+        cpus: "${DS_CPUS:-6}"
+        memory: ${DS_MEMORY:-6g}
+        pids: 512
+      reservations:
+        devices:
+          # ⚠️ `count: all`, KHÔNG phải `device_ids`. Pin GPU cấp CUDA compute nhưng không
+          # cấp node V4L2 của NVDEC (/dev/nvidia-caps/…), và khi đó `nvv4l2decoder` treo ở
+          # PREROLLING **không một thông báo lỗi nào**. Xem docs/DESIGN_NOTES.md DN-014.
+          #
+          # Giới hạn GPU nào được dùng bằng NVIDIA_VISIBLE_DEVICES nếu cần chia máy.
+          - driver: nvidia
+            count: all
+            capabilities: [gpu, video]
+
+services:
+  # --- chỉ ghi hình, không suy luận ------------------------------------------
+  # Dùng để kiểm nguồn, xem metadata khung, và là chế độ chạy THẬT của vai trò
+  # `bottom` / `evidence_only` vốn không bao giờ chạy model.
+  record:
+    <<: *ds
+    command: >
+      python3 ds_app/cmd/record.py
+        --cam ${CAM:-1}
+        --duration ${DUR:-60}
+        --out /rec
+        --retain-sec ${RETAIN_SEC:-1800}
+        ${META:+--show-meta}
+    restart: "no"
+
+  # --- kiểm môi trường -------------------------------------------------------
+  # Chạy trước khi nghi ngờ bất cứ điều gì khác: nó phân biệt "image hỏng" với
+  # "cấu hình hỏng".
+  doctor:
+    <<: *ds
+    command: python3 ds_app/cmd/doctor.py
+    restart: "no"

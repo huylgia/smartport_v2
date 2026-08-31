@@ -52,3 +52,7 @@ tests/golden/data/**/*.h265
 .idea/
 .vscode/
 .DS_Store
+
+# Segment video ghi ra — không bao giờ commit (vài MB mỗi 10 giây)
+rec/
+*.mp4

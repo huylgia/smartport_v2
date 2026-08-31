@@ -99,3 +99,20 @@ gpu-watch: ## Quan sát VRAM/NVDEC/NVENC — NVENC PHẢI bằng 0 khi ghi hình
 help:
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	 awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# --- ds_app -------------------------------------------------------------------
+DS_COMPOSE := docker compose --env-file build/.env.ds -f build/docker-compose.ds.yml
+CAM ?= 1
+DUR ?= 60
+
+.PHONY: ds-build
+ds-build: ## Dựng image ds_app (DeepStream + pyds)
+	$(DS_COMPOSE) build record
+
+.PHONY: ds-doctor
+ds-doctor: ## Kiểm môi trường ds_app — chạy TRƯỚC khi nghi ngờ thứ khác
+	$(DS_COMPOSE) run --rm doctor
+
+.PHONY: record
+record: ## Ghi hình một camera, KHÔNG suy luận (CAM=1 DUR=60 META=1)
+	CAM=$(CAM) DUR=$(DUR) META=$(META) $(DS_COMPOSE) run --rm record
