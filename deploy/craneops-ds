@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Điều khiển ds_app: thu hình từ RTSP, ghi passthrough, (sau này) chạy nhánh model.
+# Runbook: docs/RUNBOOK_DS_APP.md
+#
+#: build          | Dựng image (DeepStream + pyds)
+#: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
+#: record         | Ghi hình một camera, KHÔNG suy luận
+#: clean          | Xoá segment đã ghi
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
+
+ENV_FILE=build/.env.ds
+compose() {
+  require_env "$ENV_FILE" build/.env.ds.example
+  docker compose --env-file "$CRANEOPS_ROOT/$ENV_FILE" \
+    -f "$CRANEOPS_ROOT/build/docker-compose.ds.yml" "$@"
+}
+
+cmd_build() { require_docker; compose build record; }
+cmd_doctor() { require_docker; compose run --rm doctor; }
+
+cmd_record() {
+  local cam=1 dur=60 seg="" meta=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cam) cam="$2"; shift 2 ;;
+      --duration) dur="$2"; shift 2 ;;       # 0 = chạy mãi
+      --segment-sec) seg="$2"; shift 2 ;;    # độ dài MỖI ĐOẠN, khác --duration
+      --meta) meta=1; shift ;;
+      -h|--help)
+        printf 'craneops-ds record [--cam N] [--duration GIÂY] [--segment-sec GIÂY] [--meta]\n\n'
+        printf '  --duration     thời gian CHẠY; 0 = chạy mãi (Ctrl-C để dừng)\n'
+        printf '  --segment-sec  độ dài MỖI ĐOẠN; đây là độ trễ tệ nhất của bằng chứng\n'
+        printf '  --meta         in metadata khung của DeepStream\n'
+        return 0 ;;
+      *) die "tham số không hợp lệ cho record: $1  (--help để xem)" ;;
+    esac
+  done
+  require_docker
+  CAM="$cam" DUR="$dur" META="$meta" ${seg:+SEGMENT_SEC="$seg"} compose run --rm record
+}
+
+cmd_clean() {
+  # Chạy trong container: file do container ghi thuộc root, user thường xoá không được.
+  require_docker
+  compose run --rm --entrypoint sh record -c 'rm -rf /rec/*'
+  note "đã xoá segment"
+}
+
+case "${1:-}" in
+  build|doctor|record|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  -h|--help|help|"") printf 'craneops-ds <lệnh>\n\n'; print_commands "$0" ;;
+  *) unknown_command "$0" "${1:-}" ;;
+esac

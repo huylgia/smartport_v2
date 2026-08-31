@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Lệnh bao cho MỌI microservice của CraneOps.
+#
+# Chạy cùng một lệnh trên tất cả service, theo đúng thứ tự phụ thuộc. Dùng
+# `craneops-<service>` khi chỉ muốn tác động một service.
+#
+#: build          | Dựng image cho MỌI service
+#: up             | Chạy MỌI service (triton trước, ds_app sau)
+#: down           | Dừng MỌI service
+#: status         | Trạng thái MỌI service
+#: doctor         | Kiểm môi trường MỌI service
+#: services       | Liệt kê service và lệnh riêng của chúng
+#: install        | Đặt craneops* lên PATH để gọi từ thư mục bất kỳ
+#: uninstall      | Gỡ khỏi PATH
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
+
+BIN="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+# Thứ tự có ý nghĩa: ds_app gọi Triton qua gRPC, nên Triton phải sẵn sàng trước.
+# `down` đi ngược lại.
+SERVICES=(triton ds)
+
+# Service có hỗ trợ lệnh này không — đọc từ chính bảng `#:` của nó, nên không có danh
+# sách thứ hai để trôi khỏi thực tế.
+supports() {
+  print_commands "$BIN/craneops-$1" | grep -qE "^\s+\S*\b$2\b"
+}
+
+run_all() {
+  local action="$1" order=("${SERVICES[@]}") failed=0 ran=0
+  [ "$action" = "down" ] && order=(ds triton)
+
+  for svc in "${order[@]}"; do
+    if ! supports "$svc" "$action"; then
+      # Bỏ qua tường minh, không tính là hỏng. ds_app chưa có service chạy dài nên chưa có
+      # `up`/`down`; im lặng bỏ qua thì người dùng tưởng nó đã chạy.
+      printf '\n%s━━ %s: bỏ qua (không có lệnh %s) ━━%s\n' "$C_DIM" "$svc" "$action" "$C_OFF"
+      continue
+    fi
+    printf '\n%s━━ %s: %s ━━%s\n' "$C_BOLD" "$svc" "$action" "$C_OFF"
+    ran=$((ran + 1))
+    if ! "$BIN/craneops-$svc" "$action"; then
+      failed=$((failed + 1))
+      # KHÔNG dừng ở service đầu tiên hỏng: với `down` và `status`, dừng sớm để lại
+      # phần còn lại ở trạng thái không ai biết. Báo cáo đầy đủ rồi mới thoát khác 0.
+      printf '%s✗ %s: %s thất bại%s\n' "$C_RED" "$svc" "$action" "$C_OFF" >&2
+    fi
+  done
+
+  printf '\n'
+  [ "$ran" -gt 0 ] || die "không service nào có lệnh '$action'"
+  [ "$failed" -eq 0 ] || die "$failed/$ran service thất bại ở lệnh '$action'"
+  note "$ran/$ran service OK"
+}
+
+cmd_services() {
+  printf 'Service:\n'
+  for svc in "${SERVICES[@]}"; do
+    printf '  %s%-18s%s craneops-%s <lệnh>\n' "$C_BOLD" "$svc" "$C_OFF" "$svc"
+  done
+  printf '\nLệnh riêng của từng service:\n'
+  for svc in "${SERVICES[@]}"; do
+    printf '\n  %scraneops-%s%s\n' "$C_BOLD" "$svc" "$C_OFF"
+    print_commands "$BIN/craneops-$svc" | sed 's/^/  /'
+  done
+}
+
+# Nơi đặt symlink. `~/.local/bin` là mặc định vì nó KHÔNG cần sudo — máy đích không chắc
+# cho quyền đó. Đặt `CRANEOPS_BIN=/usr/local/bin` nếu muốn mọi user trên máy dùng chung.
+BIN_DIR="${CRANEOPS_BIN:-$HOME/.local/bin}"
+
+LINKS=(craneops craneops-triton craneops-ds)
+
+# Symlink chứ KHÔNG copy: `git pull` là cập nhật xong, không phải cài lại. Các script tự
+# phân giải vị trí thật bằng `readlink -f` nên gọi qua symlink vẫn tìm đúng gốc repo —
+# craneops-lib.sh cũng vậy, nên nó không cần symlink riêng.
+cmd_install() {
+  mkdir -p "$BIN_DIR" || die "không tạo được $BIN_DIR"
+
+  for name in "${LINKS[@]}"; do
+    local dest="$BIN_DIR/$name"
+    # Chỉ đè symlink của chính mình. Một file thật trùng tên là thứ của người khác —
+    # ghi đè nó là làm hỏng thứ mình không biết.
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+      die "$dest đã tồn tại và không phải symlink — không ghi đè.
+   Xoá nó trước, hoặc cài chỗ khác:  CRANEOPS_BIN=<thư mục> craneops install"
+    fi
+    ln -sfn "$BIN/$name" "$dest" || die "không tạo được symlink $dest"
+    printf '  %s→%s %s\n' "$C_DIM" "$C_OFF" "$dest"
+  done
+
+  # PATH kiểm bằng khớp chính xác từng thành phần, không bằng chuỗi con: `/home/x/.local/bin`
+  # nằm trong `/home/x/.local/bin2` theo nghĩa chuỗi nhưng không nghĩa gì về PATH.
+  case ":$PATH:" in
+    *":$BIN_DIR:"*)
+      note "xong — gõ 'craneops' ở thư mục bất kỳ"
+      ;;
+    *)
+      printf '\n%s⚠ %s chưa nằm trên PATH.%s Thêm dòng này vào ~/.bashrc rồi mở lại shell:\n\n' \
+        "$C_BOLD" "$BIN_DIR" "$C_OFF"
+      printf '    export PATH="%s:$PATH"\n\n' "$BIN_DIR"
+      ;;
+  esac
+}
+
+cmd_uninstall() {
+  local removed=0
+  for name in "${LINKS[@]}"; do
+    local dest="$BIN_DIR/$name"
+    # Chỉ gỡ symlink TRỎ VỀ bản cài này. Symlink trỏ đi nơi khác là của bản cài khác.
+    if [ -L "$dest" ] && [ "$(readlink -f "$dest")" = "$BIN/$name" ]; then
+      rm -f "$dest" && removed=$((removed + 1))
+      printf '  %s✗%s %s\n' "$C_DIM" "$C_OFF" "$dest"
+    fi
+  done
+  [ "$removed" -gt 0 ] && note "đã gỡ $removed symlink" || note "không có gì để gỡ ở $BIN_DIR"
+}
+
+case "${1:-}" in
+  build|up|down|status|doctor) run_all "$1" ;;
+  services) cmd_services ;;
+  install) cmd_install ;;
+  uninstall) cmd_uninstall ;;
+  -h|--help|help|"")
+    printf 'craneops <lệnh>            chạy trên MỌI service\n'
+    printf 'craneops-<service> <lệnh>  chỉ một service\n\n'
+    print_commands "$0"
+    printf '\nService: %s\n' "${SERVICES[*]}"
+    ;;
+  *) unknown_command "$0" "${1:-}" ;;
+esac

@@ -1,11 +1,6 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 
-# Cổng Triton lấy từ build/.env.triton — máy dùng chung nên cổng phải cấu hình được.
-COMPOSE := docker compose --env-file build/.env.triton -f build/docker-compose.triton.yml
-HTTP_PORT = $(shell grep TRITON_HTTP_PORT build/.env.triton | cut -d= -f2)
-GRPC_PORT = $(shell grep TRITON_GRPC_PORT build/.env.triton | cut -d= -f2)
-METRICS_PORT = $(shell grep TRITON_METRICS_PORT build/.env.triton | cut -d= -f2)
 
 
 # ---------------------------------------------------------------- dev
@@ -56,40 +51,42 @@ config: ## Sinh lại triton/repo/**/config.pbtxt từ SPECS
 config-check: ## CI: fail nếu config.pbtxt trôi khỏi SPECS
 	$(UV) run python -m tools.export_models --check
 
-# ---------------------------------------------------------------- Triton
+
+# ---------------------------------------------------------------- vận hành
+# Vận hành đã chuyển sang CLI trong `deploy/` — nó chạy được trên máy đích, nơi chỉ có
+# Docker chứ không có venv hay `uv`. Các target dưới đây chỉ là lối tắt cho máy dev; MỘT
+# bản cài đặt duy nhất, nên không thể trôi khỏi nhau.
+#
+#   ./deploy/craneops build           dựng image mọi service
+#   ./deploy/craneops-triton up       chỉ Triton
+#   ./deploy/craneops-ds record       ghi hình
+#   ./deploy/craneops services        xem toàn bộ lệnh
+
+.PHONY: up down status logs bench accuracy
+up down status logs bench accuracy: ## → deploy/craneops-triton <lệnh>
+	@./deploy/craneops-triton $@
+
+.PHONY: ds-build ds-doctor
+ds-build:  ## → deploy/craneops-ds build
+	@./deploy/craneops-ds build
+ds-doctor: ## → deploy/craneops-ds doctor
+	@./deploy/craneops-ds doctor
+
 .PHONY: build-triton
-build-triton: ## Docker image cho Triton + modelsvc
-	docker build -t craneops-triton:dev -f build/triton.Dockerfile .
+build-triton: ## → deploy/craneops-triton build
+	@./deploy/craneops-triton build
 
-.PHONY: up
-up: ## Dựng engine (nếu cần) rồi chạy Triton
-	$(COMPOSE) up -d
-	@echo "Triton: HTTP :$(HTTP_PORT)  gRPC :$(GRPC_PORT)  metrics :$(METRICS_PORT)"
+# Mặc định của `make record`. CLI có mặc định riêng; hai chỗ này chỉ để `make record`
+# không truyền cờ rỗng.
+CAM ?= 1
+DUR ?= 60
 
-.PHONY: down
-down: ## Dừng Triton. Engine nằm trong volume `craneops_models`, KHÔNG mất.
-	$(COMPOSE) down
-
-.PHONY: status
-status: ## Model nào đang READY
-	@curl -s -X POST localhost:$(HTTP_PORT)/v2/repository/index | \
-	 python3 -c "import json,sys;[print(f\"  {m['name']:<28}{m['state']}\") for m in sorted(json.load(sys.stdin),key=lambda x:x['name'])]"
-
-.PHONY: logs
-logs: ## Log của modelsvc (dựng engine) và Triton
-	$(COMPOSE) logs --tail 40
-
-# ---------------------------------------------------------------- đo đạc
-.PHONY: bench
-bench: ## Hiệu năng: từng model + đường ống BLS (HARDWARE_BUDGET §6.1)
-	$(UV) run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --all \
-		--http http://localhost:$(HTTP_PORT) --url localhost:$(GRPC_PORT) \
-		--metrics http://localhost:$(METRICS_PORT)/metrics
-
-.PHONY: accuracy
-accuracy: ## Độ chính xác từng model so với NHÃN (HARDWARE_BUDGET §6.2)
-	$(UV) run --with "tritonclient[http]" --with opencv-python-headless \
-		python -m tools.golden.accuracy --url localhost:$(HTTP_PORT)
+.PHONY: record record-clean
+record: ## → deploy/craneops-ds record (CAM=1 DUR=60 SEGMENT_SEC=10 META=1)
+	@./deploy/craneops-ds record --cam $(CAM) --duration $(DUR) \
+	  $(if $(SEGMENT_SEC),--segment-sec $(SEGMENT_SEC),) $(if $(META),--meta,)
+record-clean: ## → deploy/craneops-ds clean
+	@./deploy/craneops-ds clean
 
 .PHONY: gpu-watch
 gpu-watch: ## Quan sát VRAM/NVDEC/NVENC — NVENC PHẢI bằng 0 khi ghi hình
@@ -99,24 +96,3 @@ gpu-watch: ## Quan sát VRAM/NVDEC/NVENC — NVENC PHẢI bằng 0 khi ghi hình
 help:
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	 awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
-
-# --- ds_app -------------------------------------------------------------------
-DS_COMPOSE := docker compose --env-file build/.env.ds -f build/docker-compose.ds.yml
-CAM ?= 1
-DUR ?= 60
-
-.PHONY: ds-build
-ds-build: ## Dựng image ds_app (DeepStream + pyds)
-	$(DS_COMPOSE) build record
-
-.PHONY: ds-doctor
-ds-doctor: ## Kiểm môi trường ds_app — chạy TRƯỚC khi nghi ngờ thứ khác
-	$(DS_COMPOSE) run --rm doctor
-
-.PHONY: record
-record: ## Ghi hình một camera, KHÔNG suy luận (CAM=1 DUR=60 META=1)
-	CAM=$(CAM) DUR=$(DUR) META=$(META) $(DS_COMPOSE) run --rm record
-
-.PHONY: record-clean
-record-clean: ## Xoá segment đã ghi. Chạy trong container vì file thuộc root.
-	$(DS_COMPOSE) run --rm --entrypoint sh record -c 'rm -rf /rec/*'

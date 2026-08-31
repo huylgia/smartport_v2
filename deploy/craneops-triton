@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Điều khiển service Triton: dựng model có kiểm bản quyền, rồi phục vụ suy luận.
+# Runbook: docs/RUNBOOK_TRITON.md
+#
+#: build          | Dựng image (Triton + modelsvc)
+#: up             | Kiểm license → giải mã → dựng engine → chạy Triton
+#: down           | Dừng. Engine nằm trong volume craneops_models, KHÔNG mất
+#: status         | Model nào đang READY
+#: logs           | 40 dòng log cuối của modelsvc và Triton
+#: bench          | Đo hiệu năng (HARDWARE_BUDGET §6.1) — cần uv
+#: accuracy       | Đo độ chính xác so với NHÃN (§6.2) — cần uv
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
+
+ENV_FILE=build/.env.triton
+compose() {
+  require_env "$ENV_FILE" build/.env.triton.example
+  docker compose --env-file "$CRANEOPS_ROOT/$ENV_FILE" \
+    -f "$CRANEOPS_ROOT/build/docker-compose.triton.yml" "$@"
+}
+http_port() { env_value "$ENV_FILE" TRITON_HTTP_PORT 18000; }
+
+cmd_build() { require_docker; docker build -t craneops-triton:dev -f "$CRANEOPS_ROOT/build/triton.Dockerfile" "$CRANEOPS_ROOT"; }
+
+cmd_up() {
+  require_docker
+  compose up -d
+  note "Triton: HTTP :$(http_port)  gRPC :$(env_value "$ENV_FILE" TRITON_GRPC_PORT 18001)  metrics :$(env_value "$ENV_FILE" TRITON_METRICS_PORT 18002)"
+  note "lần đầu dựng engine mất ~9 phút — theo dõi bằng: craneops-triton logs"
+}
+
+cmd_down() { compose down; }
+cmd_logs() { compose logs --tail 40; }
+
+cmd_status() {
+  local out
+  # Không dùng `docker compose ps`: nó chỉ nói container còn sống, không nói model đã nạp
+  # xong chưa — mà "container up, model chưa READY" là trạng thái bình thường suốt 9 phút.
+  out="$(curl -fsS -X POST "localhost:$(http_port)/v2/repository/index" 2>/dev/null)" \
+    || die "không hỏi được Triton ở cổng $(http_port). Nó đã chạy chưa? (craneops-triton up)"
+  printf '%s' "$out" | python3 -c "
+import json,sys
+models = sorted(json.load(sys.stdin), key=lambda m: m['name'])
+ready = sum(m.get('state') == 'READY' for m in models)
+for m in models:
+    print(f\"  {m['name']:<28}{m.get('state','?')}\")
+print(f'\n  {ready}/{len(models)} READY')
+sys.exit(0 if ready == len(models) and models else 1)"
+}
+
+cmd_bench() {
+  command -v uv >/dev/null || die "bench cần uv (lệnh đo, chỉ chạy trên máy dev)"
+  cd "$CRANEOPS_ROOT" && uv run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --all \
+    --http "http://localhost:$(http_port)" \
+    --url "localhost:$(env_value "$ENV_FILE" TRITON_GRPC_PORT 18001)" \
+    --metrics "http://localhost:$(env_value "$ENV_FILE" TRITON_METRICS_PORT 18002)/metrics"
+}
+
+cmd_accuracy() {
+  command -v uv >/dev/null || die "accuracy cần uv (lệnh đo, chỉ chạy trên máy dev)"
+  cd "$CRANEOPS_ROOT" && uv run --with "tritonclient[http]" --with opencv-python-headless \
+    python -m tools.golden.accuracy --url "localhost:$(http_port)"
+}
+
+case "${1:-}" in
+  build|up|down|status|logs|bench|accuracy) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  -h|--help|help|"") printf 'craneops-triton <lệnh>\n\n'; print_commands "$0" ;;
+  *) unknown_command "$0" "${1:-}" ;;
+esac
