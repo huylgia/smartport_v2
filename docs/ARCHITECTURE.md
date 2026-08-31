@@ -41,9 +41,9 @@
       ▼
 ┌───────────────── ds_app (DeepStream, container) ─────────────────┐
 │  tee TẠI TẦNG BITSTREAM (trước decode)                            │
-│   ├─► queue → splitmuxsink → /var/lib/craneops/rec/<cam>/*.mp4    │  ⭐ 0 NVENC
+│   ├─► splitmuxsink → rec/<mã cam>/<epoch>.mp4                     │  ⭐ 0 NVENC
 │   │            segment 10 s + sweeper · CẢ 10 camera              │     0 NVDEC thêm
-│   └─► queue → nvv4l2decoder(drop-frame-interval) → nvstreammux    │  ⚠️ CHỈ 8 camera
+│   └─► queue → nvv4l2decoder → nvstreammux                        │  ⚠️ CHỈ 8 camera
 │         (cam 2 evidence-only và cam 9 bottom KHÔNG decode)        │
 │         ├ crane  : nvinferserver(truckitems_pico)                 │
 │         ├ tcode  : nvinferserver(truckhead) → nvinferserver(cls)  │──gRPC──► Triton

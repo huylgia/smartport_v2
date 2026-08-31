@@ -240,45 +240,6 @@ def test_inverted_roi_is_rejected() -> None:
         OcrRoi(shape="vertical", lane=Lane.ONE, roi=(0.5, 0.5, 0.1, 0.1), input_size=(576, 608))
 
 
-# ---------------------------------------------------------------- decimate
-
-
-def test_keep_interval_defaults_per_role() -> None:
-    """Chu kỳ giữ khung suy từ chu kỳ xử lý thật của rule, ở nguồn 30 fps."""
-
-    def mk(role: CameraRole) -> CameraConfig:
-        return CameraConfig(id=1, name="x", role=role, rtsp_record="rtsp://h/s")
-
-    assert mk(CameraRole.CCODE).keep_interval == 6  # 5 fps
-    assert mk(CameraRole.CRANE).keep_interval == 9  # 3,3 fps
-    assert mk(CameraRole.TCODE).keep_interval == 15  # 2 fps
-
-
-def test_undecoded_camera_has_no_keep_interval() -> None:
-    cam = CameraConfig(id=9, name="day", role=CameraRole.BOTTOM, rtsp_record="rtsp://h/s")
-    assert cam.keep_interval == 0
-    assert not cam.decodes
-
-
-def test_keep_interval_round_trips_through_restore_frame_id() -> None:
-    """Con số đặt cho decoder PHẢI là con số dùng để khôi phục chỉ số khung.
-
-    Một phép ``±1`` lạc giữa hai chỗ làm mọi dấu thời gian lệch theo đúng tỉ lệ decimate,
-    và không có gì báo lỗi — chỉ là cửa sổ cắt clip sai. Xem internal/pkg/timebase.py.
-    """
-    from internal.pkg.timebase import restore_frame_id
-
-    cam = CameraConfig(id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s")
-    assert restore_frame_id(10, cam.keep_interval) == 60
-
-
-def test_explicit_drop_frame_interval_overrides_the_role_default() -> None:
-    cam = CameraConfig(
-        id=1, name="x", role=CameraRole.CCODE, rtsp_record="rtsp://h/s", drop_frame_interval=3
-    )
-    assert cam.keep_interval == 3
-
-
 # ---------------------------------------------------------------- thứ tự nguồn
 
 

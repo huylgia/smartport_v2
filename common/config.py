@@ -44,18 +44,6 @@ __all__ = [
 
 _ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
-# Chu kỳ giữ khung cho decoder, theo vai trò. Đây là giá trị đặt cho
-# `nvurisrcbin.drop-frame-interval`, và cũng chính là số nhân để khôi phục chỉ số khung
-# gốc (`internal/pkg/timebase.restore_frame_id`) — một con số, không có phép ±1 ở giữa.
-#
-# Suy từ chu kỳ xử lý thật của từng rule ở nguồn 30 fps:
-#   ccode 5 fps ⇒ 6   ·   crane 3,3 fps ⇒ 9   ·   tcode 2 fps ⇒ 15
-_DEFAULT_DROP_INTERVAL = {
-    CameraRole.CCODE: 6,
-    CameraRole.CRANE: 9,
-    CameraRole.TCODE: 15,
-}
-
 Relative = Annotated[float, Field(ge=0.0, le=1.0)]
 """Toạ độ tương đối trong khung ảnh. **Không phải pixel** — xem DN-002."""
 
@@ -160,11 +148,6 @@ class CameraConfig(BaseModel):
 
     ocr_rois: list[OcrRoi] = Field(default_factory=list)
 
-    drop_frame_interval: int | None = Field(default=None, ge=0, le=30)
-    """Chu kỳ giữ khung cho decoder. ``None`` ⇒ lấy mặc định theo vai trò.
-
-    Bỏ qua với camera không decode."""
-
     @model_validator(mode="after")
     def _role_consistency(self) -> CameraConfig:
         if self.ocr_rois and self.role is not CameraRole.CCODE:
@@ -186,16 +169,6 @@ class CameraConfig(BaseModel):
         ``bottom`` và ``evidence_only`` trả ``False``: chúng chỉ ghi hình. Xem docstring
         module về ngân sách NVDEC."""
         return self.role.runs_model
-
-    @property
-    def keep_interval(self) -> int:
-        """Giá trị đặt cho ``nvurisrcbin.drop-frame-interval``, và cũng là số nhân khôi
-        phục chỉ số khung. ``0`` với camera không decode."""
-        if not self.decodes:
-            return 0
-        if self.drop_frame_interval is not None:
-            return self.drop_frame_interval
-        return _DEFAULT_DROP_INTERVAL[self.role]
 
 
 class CraneConfig(BaseModel):

@@ -76,38 +76,18 @@ def test_pad_map_follows_declaration_order(gst: Any) -> None:
     assert [pad_map[i] for i in range(8)] == ["1", "4", "6", "7", "8", "3", "5", "10"]
 
 
-# ---------------------------------------------------------------- decimate
+# ---------------------------------------------------------------- không decimate
 
 
-def test_drop_frame_interval_goes_on_nvurisrcbin_itself(gst: Any) -> None:
-    """⚠️ Phải đặt trên nvurisrcbin, KHÔNG phải trên nvv4l2decoder con.
+def test_no_drop_frame_interval_is_set(gst: Any) -> None:
+    """⚠️ CỐ Ý không đặt. Nó KHÔNG giảm tải NVDEC.
 
-    Đặt qua ``child-added`` lên decoder không bao giờ có tác dụng trên DS8, và hỏng theo
-    kiểu tệ nhất: không khung nào bị bỏ nhưng chỉ số khung vẫn bị nhân lên.
+    Nguồn là IPPP, GOP 50, không một khung B nào — mọi khung đều phải giải mã, và
+    ``drop-frame-interval`` chỉ vứt output SAU khi đã giải mã xong. Đặt nó là trả giá
+    (mất khung cho suy luận) mà không được gì ở chỗ nghẽn thật. HARDWARE_BUDGET §2.2.
     """
-    bin_ = make_source_bin(gst, 0, _cam(CameraRole.CCODE))
-    src = bin_.get_by_name("uridecode_0")
-
-    assert src.factory == "nvurisrcbin"
-    assert src.props["drop-frame-interval"] == 6
-
-
-def test_undecoded_camera_sets_no_drop_interval(gst: Any) -> None:
-    bin_ = make_source_bin(gst, 0, _cam(CameraRole.BOTTOM, cam_id=9))
-    src = bin_.get_by_name("uridecode_0")
-
+    src = make_source_bin(gst, 0, _cam(CameraRole.CCODE)).get_by_name("uridecode_0")
     assert "drop-frame-interval" not in src.props
-
-
-def test_drop_interval_is_the_restore_multiplier(gst: Any) -> None:
-    """Con số đặt cho decoder PHẢI là con số khôi phục chỉ số khung — không có ±1 ở giữa."""
-    from internal.pkg.timebase import restore_frame_id
-
-    camera = _cam(CameraRole.TCODE)
-    bin_ = make_source_bin(gst, 0, camera)
-    configured = bin_.get_by_name("uridecode_0").props["drop-frame-interval"]
-
-    assert restore_frame_id(4, configured) == 4 * camera.keep_interval
 
 
 # ---------------------------------------------------------------- chốt chặn

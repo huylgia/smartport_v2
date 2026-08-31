@@ -147,8 +147,8 @@ Tiêu chí đạt, đo trên **máy đích**, chạy liên tục ≥ 30 phút:
 * `nvidia-smi dmon -s u` → cột `dec` **< 80 %** duy trì (biên cho lúc cao điểm).
 * Độ sâu queue GStreamer ổn định, không tăng đơn điệu.
 * Không có `QoS`/drop message trên bus.
-* Chênh lệch `frame_ts` giữa hai message liên tiếp của cùng camera đúng bằng
-  `drop_frame_interval / 30` giây, không trôi.
+* Chênh lệch `frame_ts` giữa hai message liên tiếp của cùng camera bằng đúng nghịch đảo
+  nhịp phát của nó, không trôi.
 
 **Nếu phương án 1 không đạt**, thứ tự áp dụng:
 
@@ -224,20 +224,25 @@ nới sàn — nới sàn là phá bằng chứng để cứu dung lượng.
 
 Suy từ nhịp mà mỗi vai trò thực sự cần, không phải suy đoán:
 
-Ngữ nghĩa DeepStream: `drop-frame-interval = N` nghĩa là **mỗi khung thứ N được xuất ra**
-⇒ `fps_ra = 30 / N`, và chỉ số khung gốc `= frame_num * N`. Giá trị `0` và `1` đều nghĩa
-là giữ mọi khung. (Không phải `N+1` — `internal/pkg/timebase.py` đã chốt bằng test.)
+| Vai trò | Camera GC03 | Chu kỳ cần | fps mục tiêu |
+|---|---|---|---:|
+| ccode | 1, 4, 6, 7, 8 | `0.2` s | 5 |
+| crane | 10 | `0.3` s | 3,3 |
+| tcode | 3, 5 | `0.5` s | 2 |
+| bottom | 9 | — | **không decode** |
+| evidence-only | 2 | — | **không decode** |
 
-| Vai trò | Camera GC03 | Chu kỳ cần | fps mục tiêu | `drop_frame_interval` @30 | fps thực ra |
-|---|---|---|---:|---:|---:|
-| ccode | 1, 4, 6, 7, 8 | `0.2` s | 5 | **6** | 5,00 |
-| crane | 10 | `0.3` s | 3,3 | **9** | 3,33 |
-| tcode | 3, 5 | `0.5` s | 2 | **15** | 2,00 |
-| bottom | 9 | `1.0` s | — | **không decode** | — |
-| evidence-only | 2 | `0.001` (mặc định) | — | **không decode** | — |
+⚠️ **Các con số này KHÔNG được thực thi ở decoder.** `ds_app` cố ý không đặt
+`drop-frame-interval`: §2.2 đã chứng minh nó không giảm tải NVDEC (nguồn IPPP, GOP 50,
+không khung B ⇒ mọi khung đều phải giải mã, nó chỉ vứt output *sau đó*). Đặt nó là trả giá
+— mất khung cho suy luận — mà không được gì ở chỗ nghẽn thật.
 
-Nhắc lại: các giá trị này giảm tải **hạ nguồn** (nvstreammux, Triton, copy buffer) chứ
-**không** giảm tải NVDEC — xem §2.2.
+Giảm nhịp thuộc về tầng nghiệp vụ, nơi nó tiết kiệm thứ đo được: **số request gửi Triton**.
+Decoder chạy ở fps nguồn; probe/rule quyết định khung nào đáng gửi đi.
+
+Hệ quả cho ngân sách Triton: nếu không giảm nhịp ở đâu cả, tải suy luận là fps **nguồn**
+(30) chứ không phải fps mục tiêu (5) — gấp 6 lần. Trần đo được là 1 137 req/s (§6.1) nên
+vẫn còn biên, nhưng biên đó phải được đo lại trên RTX 3060 trước khi tin.
 
 ---
 

@@ -58,7 +58,8 @@ Hai lựa chọn thiết kế, đều để bỏ phụ thuộc vào thứ trôi 
 | Cửa sổ | 3 khung liên tiếp ≈ 0,9 s ở 3,3 fps — **trôi theo fps** | `stable_duration`, mặc định **3,0 s** |
 | Ngưỡng dịch chuyển | 3 px tuyệt đối | `stable_move_ratio` — tỉ lệ so với đường chéo bbox |
 
-Đếm theo khung nghĩa là đổi `drop_frame_interval` sẽ vô tình đổi luôn định nghĩa "ổn định".
+Đếm theo khung trói định nghĩa "ổn định" vào fps của nguồn: đổi cấu hình camera là vô tình
+đổi luôn ngưỡng nghiệp vụ, và không có gì báo.
 Ngưỡng 3 px tuyệt đối thì phụ thuộc độ phân giải và khoảng cách xe tới camera — cùng lý do
 đã chốt ở [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-002 Q3. `stable_move_ratio: 0.02` là giá
 trị tương ứng 3 px trên bbox đầu kéo có đường chéo ~150 px.

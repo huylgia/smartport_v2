@@ -136,7 +136,8 @@ Cổng chặn là `truck_stable` từ `CRANE02`, và **định nghĩa "ổn đ�
 Hai lý do đổi:
 
 * **Đếm khung trôi theo fps.** "3 khung" nghĩa là 0,9 s với camera crane (3,3 fps).
-  Đổi `drop_frame_interval` là vô tình đổi luôn định nghĩa ổn định. Đếm theo giây thì không.
+  Định nghĩa "ổn định" khi đó bị trói vào fps của nguồn — đổi cấu hình camera là vô tình
+  đổi luôn ngưỡng nghiệp vụ, im lặng. Đếm theo giây thì không.
 * **3 px tuyệt đối phụ thuộc độ phân giải và khoảng cách.** Cùng lý do đã chốt ở DN-002 Q3.
   Chuẩn hoá theo đường chéo bbox: 3 px trên một bbox đầu xe đường chéo ~150 px ≈ **2 %**,
   nên `stable_move_ratio: 0.02` là giá trị mặc định.

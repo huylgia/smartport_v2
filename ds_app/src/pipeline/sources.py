@@ -99,17 +99,12 @@ def make_source_bin(Gst: Any, index: int, camera: CameraConfig) -> Any:
     src.set_property("uri", uri)
     apply_props(src, NVURISRCBIN)
 
-    if camera.keep_interval > 0:
-        # ⚠️ Đặt trên CHÍNH nvurisrcbin, không phải trên nvv4l2decoder con.
-        #
-        # Đặt qua `child-added` lên decoder **không bao giờ có tác dụng** trên DS8 — và nó
-        # hỏng theo kiểu tệ nhất: không khung nào bị bỏ, nhưng phía sau vẫn nhân chỉ số
-        # khung lên, làm mọi frame_id (và mọi dấu thời gian suy từ nó) phồng lên đúng bấy
-        # nhiêu lần.
-        #
-        # Giá trị đặt ở đây CHÍNH LÀ số nhân khôi phục — xem CameraConfig.keep_interval và
-        # internal/pkg/timebase.restore_frame_id. Một con số, không có ±1 ở giữa.
-        src.set_property("drop-frame-interval", camera.keep_interval)
+    # ⚠️ CỐ Ý không đặt `drop-frame-interval`. Nó KHÔNG giảm tải NVDEC: nguồn là IPPP,
+    # GOP 50, không một khung B nào (đo 2026-08-29), nên mọi khung đều phải giải mã — nó
+    # chỉ vứt output SAU khi đã giải mã. Xem docs/HARDWARE_BUDGET.md §2.2.
+    #
+    # Giảm nhịp là việc của tầng nghiệp vụ, ở chỗ nó thật sự tiết kiệm được (số request gửi
+    # Triton), không phải ở decoder.
 
     ghost = Gst.GhostPad.new_no_target("src", Gst.PadDirection.SRC)
     bin_.add_pad(ghost)
