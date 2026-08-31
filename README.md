@@ -8,7 +8,8 @@ Kiến trúc: **DeepStream** cho perception, **Triton** cho inference, **Kafka**
 một process cho mỗi nhóm rule, service evidence riêng cho việc nặng.
 
 **Trạng thái: Phase 2 xong** — 9 model chạy trên Triton, đã đo hiệu năng và độ chính xác.
-Phase 3 (`ds_app`) là phần tiếp theo.
+**Phase 3 đang làm** — nguồn camera và nhánh ghi hình passthrough đã xong và có test;
+nhánh model (`nvstreammux` → `nvinferserver` → probe → Kafka) là phần còn lại.
 
 ## Bắt đầu
 
@@ -38,6 +39,7 @@ Cần `build/.env.triton` với `CRANEOPS_LICENSE_KEY`, `CRANEOPS_MODEL_PASSWORD
 
 ```
 ds_app/       DeepStream pipeline (container — KHÔNG PyInstaller)
+  src/pipeline/   elements (hằng số tinh chỉnh), sources (nvurisrcbin), recorder (ghi passthrough)
 triton/
   repo/           9 model: 4 ccode (det/rec × h/v), 2 BLS ghép chuỗi, 2 pico, 1 cls
   bls/            Business Logic Scripting — det → hậu xử lý → crop → rec
