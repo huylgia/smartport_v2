@@ -13,12 +13,27 @@ nhánh model (`nvstreammux` → `nvinferserver` → probe → Kafka) là phần 
 
 ## Bắt đầu
 
+Trên máy dev (cần [uv](https://docs.astral.sh/uv/)):
+
 ```bash
 make setup                 # uv sync --extra dev + pre-commit
 make check                 # ruff + mypy + pytest — chạy trước mỗi commit
-make up                    # dựng Triton: license → giải mã → engine → serve
-make status                # 9/9 model READY?
 ```
+
+Vận hành, trên máy dev lẫn máy đích (chỉ cần Docker):
+
+```bash
+./deploy/craneops install   # một lần: symlink vào ~/.local/bin, KHÔNG cần sudo
+
+craneops build             # dựng image mọi microservice
+craneops up                # license → giải mã model → build engine → serve
+craneops status            # 9/9 model READY?
+craneops-ds record --cam 1 --duration 60      # ghi thử một camera
+```
+
+Gõ `craneops` không kèm lệnh để xem toàn bộ. Ba script trong `deploy/` là shell thuần —
+máy đích không cần `uv`, không cần venv, không cần cài gì của dự án. `install` chỉ tạo
+symlink nên `git pull` là cập nhật xong; không cài cũng chạy được, chỉ phải gõ đủ đường dẫn.
 
 Cần `build/.env.triton` với `CRANEOPS_LICENSE_KEY`, `CRANEOPS_MODEL_PASSWORD`,
 `CRANEOPS_ASSETS`. File này **không** nằm trong repo — không có secret nào nằm trong repo.

@@ -16,6 +16,34 @@ Triton là service riêng, có runbook riêng: [RUNBOOK_TRITON.md](RUNBOOK_TRITO
 
 ---
 
+## 0. Bộ lệnh `craneops`
+
+Mọi thao tác vận hành đi qua ba script trong `deploy/`. Chúng là **shell thuần**: chạy được
+trên máy đích, nơi chỉ có Docker — không cần `uv`, không cần venv, không cần cài gì của dự
+án.
+
+Đưa lên `PATH` một lần, sau đó gọi từ thư mục bất kỳ:
+
+```bash
+./deploy/craneops install    # symlink vào ~/.local/bin — KHÔNG cần sudo
+```
+
+```bash
+craneops          # fan-out mọi microservice: build | up | down | status | doctor
+craneops-triton   # chỉ Triton
+craneops-ds       # chỉ ds_app
+```
+
+Gõ tên lệnh không kèm gì để xem danh sách. `install` tạo **symlink**, không copy — nên
+`git pull` là cập nhật xong, không phải cài lại. Muốn dùng chung cho mọi user trên máy thì
+`CRANEOPS_BIN=/usr/local/bin ./deploy/craneops install` (chỗ này mới cần quyền ghi);
+`craneops uninstall` gỡ ra. Không cài cũng chạy được, chỉ là phải gõ đủ `./deploy/craneops`.
+
+`make` chỉ còn dùng trên máy dev (`make check`, `make schema`, `make config` — chúng cần
+`uv`). Các target vận hành cũ vẫn còn nhưng chỉ gọi lại CLI, nên không thể trôi khỏi nhau.
+
+---
+
 ## 1. Hai thứ hỏng trong im lặng
 
 ### 1.1 GPU phải cấp bằng `count: all`, KHÔNG phải `device_ids`
@@ -43,7 +71,7 @@ Plugin `nvstreammux` đọc biến này **lúc nạp** để chọn muxer cũ ha
 (`batch-size`, `width`, `height`, `batched-push-timeout`, `live-source`) — và khi đó nó
 **không bao giờ đẩy một batch nào**. Không có metadata, không có lỗi.
 
-Đã đặt ở cả `build/ds_app.Dockerfile` lẫn compose. `make ds-doctor` kiểm lại nó.
+Đã đặt ở cả `build/ds_app.Dockerfile` lẫn compose. `craneops-ds doctor` kiểm lại nó.
 
 ---
 
@@ -66,7 +94,7 @@ cần ~25 GB đĩa cho image.
 ## 3. Dựng image
 
 ```bash
-make ds-build
+craneops-ds build
 ```
 
 Image mang `pyds` và các gói Python; **mã nguồn không nằm trong image** — compose mount
@@ -126,7 +154,7 @@ Mã trùng nhau bị từ chối lúc load.
 ### 5.1 Kiểm môi trường trước
 
 ```bash
-make ds-doctor
+craneops-ds doctor
 ```
 
 Chạy cái này **trước khi nghi ngờ bất cứ thứ gì khác**. Nó phân biệt "image hỏng" với "cấu
@@ -148,9 +176,9 @@ lỗi) nhưng cách sửa hoàn toàn khác.
 ### 5.2 Ghi hình
 
 ```bash
-make record CAM=1 DUR=60                    # chạy 60 giây rồi dừng
-make record CAM=1 DUR=0                     # chạy mãi, Ctrl-C để dừng
-SEGMENT_SEC=60 make record CAM=1 DUR=0      # mỗi đoạn 60 giây thay vì 10
+craneops-ds record --cam 1 --duration 60                    # chạy 60 giây rồi dừng
+craneops-ds record --cam 1 --duration 0                     # chạy mãi, Ctrl-C để dừng
+craneops-ds record --cam 1 --duration 0 --segment-sec 60# mỗi đoạn 60 giây thay vì 10
 ```
 
 `DUR` là **thời gian chạy**, `SEGMENT_SEC` là **độ dài mỗi đoạn** — hai thứ khác nhau. Đặt
@@ -201,13 +229,13 @@ giới hạn số phiên encode. Nhánh ghi cắm vào luồng **chưa decode** 
 Kiểm trong lúc đang ghi:
 
 ```bash
-make gpu-watch      # cột enc PHẢI là 0; dec ~1-2 % cho một camera
+nvidia-smi dmon -s pucm      # cột enc PHẢI là 0; dec ~1-2 % cho một camera
 ```
 
 ### 5.3 Xem metadata DeepStream trả về
 
 ```bash
-make record CAM=1 DUR=60 META=1
+craneops-ds record --cam 1 --duration 60 --meta
 ```
 
 ```
@@ -233,10 +261,10 @@ trên trục chung, và đoạn nào chứa khung đó.
 ## 6. Vận hành
 
 ```bash
-make ds-doctor                     # kiểm môi trường
-make record CAM=<n> DUR=0          # ghi liên tục một camera
-make gpu-watch                     # NVENC phải = 0
-make record-clean                  # xoá thư mục ghi cục bộ
+craneops-ds doctor                     # kiểm môi trường
+craneops-ds record --cam <n> --duration 0          # ghi liên tục một camera
+nvidia-smi dmon -s pucm                     # NVENC phải = 0
+craneops-ds clean                  # xoá thư mục ghi cục bộ
 ```
 
 ### Dọn đĩa
@@ -262,7 +290,7 @@ lặng.
 
 ### Pipeline vào PLAYING nhưng không có đoạn nào, không lỗi
 
-Gần như chắc chắn là §1.1 hoặc §1.2. Chạy `make ds-doctor` trước.
+Gần như chắc chắn là §1.1 hoặc §1.2. Chạy `craneops-ds doctor` trước.
 
 ### `ConfigError: cần biến môi trường CAM0N_RTSP … nhưng nó trống`
 
@@ -285,7 +313,7 @@ vấn đề, kiểm mạng tới camera.
 
 ### `[sweep] ❌ N file xoá không được — PermissionError`
 
-Sweeper chạy khác user với tiến trình ghi. Nếu chỉ chạy qua `make record` thì không xảy ra;
+Sweeper chạy khác user với tiến trình ghi. Nếu chỉ chạy qua `craneops-ds record` thì không xảy ra;
 nó xảy ra khi ai đó chạy sweeper riêng hoặc dọn tay bằng user khác.
 
 ### Đoạn ghi ra nhưng không mở được
@@ -303,7 +331,7 @@ gst-launch-1.0 -e filesrc location=<đoạn>.mp4 ! qtdemux ! h265parse ! nvv4l2d
 ## 8. Gỡ bỏ
 
 ```bash
-make record-clean                       # xoá segment
+craneops-ds clean                       # xoá segment
 docker rmi craneops-ds:dev              # xoá image (~25 GB)
 ```
 

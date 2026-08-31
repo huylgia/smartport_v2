@@ -8,6 +8,34 @@ không cần `sudo` cho việc vận hành hằng ngày (chỉ cần một lần
 
 ---
 
+## 0. Bộ lệnh `craneops`
+
+Mọi thao tác vận hành đi qua ba script trong `deploy/`. Chúng là **shell thuần**: chạy được
+trên máy đích, nơi chỉ có Docker — không cần `uv`, không cần venv, không cần cài gì của dự
+án.
+
+Đưa lên `PATH` một lần, sau đó gọi từ thư mục bất kỳ:
+
+```bash
+./deploy/craneops install    # symlink vào ~/.local/bin — KHÔNG cần sudo
+```
+
+```bash
+craneops          # fan-out mọi microservice: build | up | down | status | doctor
+craneops-triton   # chỉ Triton
+craneops-ds       # chỉ ds_app
+```
+
+Gõ tên lệnh không kèm gì để xem danh sách. `install` tạo **symlink**, không copy — nên
+`git pull` là cập nhật xong, không phải cài lại. Muốn dùng chung cho mọi user trên máy thì
+`CRANEOPS_BIN=/usr/local/bin ./deploy/craneops install` (chỗ này mới cần quyền ghi);
+`craneops uninstall` gỡ ra. Không cài cũng chạy được, chỉ là phải gõ đủ `./deploy/craneops`.
+
+`make` chỉ còn dùng trên máy dev (`make check`, `make schema`, `make config` — chúng cần
+`uv`). Các target vận hành cũ vẫn còn nhưng chỉ gọi lại CLI, nên không thể trôi khỏi nhau.
+
+---
+
 ## 1. Hai điều phải biết trước
 
 ### 1.1 Engine TensorRT gắn với **kiến trúc GPU** — phải dựng trên chính máy sẽ chạy
@@ -64,7 +92,7 @@ Toolkit.
 ```bash
 git clone https://github.com/huylgia/smartport_v2.git
 cd smartport_v2
-make build-triton          # docker build -f build/triton.Dockerfile
+craneops-triton build          # docker build -f build/triton.Dockerfile
 ```
 
 Một image dùng cho cả hai service: `modelsvc` (dựng engine) và `triton` (phục vụ). Dùng
@@ -196,7 +224,7 @@ Cổng mặc định 18000-18002 vì 8000-8002 thường đã bị chiếm. Đ�
 ## 6. Chạy lần đầu
 
 ```bash
-make up
+craneops-triton up
 ```
 
 Chuỗi việc xảy ra, theo đúng thứ tự:
@@ -217,7 +245,7 @@ file `.t7` nguồn ⇒ khởi động lại chỉ vài giây.
 ### Kiểm tra
 
 ```bash
-make status
+craneops-triton status
 ```
 
 Phải thấy đủ **9/9 READY**:
@@ -237,8 +265,8 @@ craneops_truckitems_pico    READY     ← PicoDet container + đầu kéo
 Kiểm sâu hơn — chạy trên chính máy đích, không tin số của máy dev:
 
 ```bash
-make accuracy      # so với ảnh có nhãn trong assets/
-make bench         # thông lượng, độ trễ, mức gom batch thật
+craneops-triton accuracy      # so với ảnh có nhãn trong assets/
+craneops-triton bench         # thông lượng, độ trễ, mức gom batch thật
 ```
 
 Số tham chiếu từ máy dev (2× RTX 5090) — máy đích sẽ **thấp hơn**, đó là bình thường:
@@ -251,11 +279,11 @@ lệch, engine dựng sai, không phải máy yếu.
 ## 7. Vận hành hằng ngày
 
 ```bash
-make status        # model nào READY
-make logs          # 40 dòng log cuối
-make down          # dừng. Engine nằm trong volume craneops_models, KHÔNG mất
-make up            # chạy lại, vài giây vì dùng lại engine
-make gpu-watch     # theo dõi VRAM / NVDEC / NVENC
+craneops-triton status        # model nào READY
+craneops-triton logs          # 40 dòng log cuối
+craneops-triton down          # dừng. Engine nằm trong volume craneops_models, KHÔNG mất
+craneops-triton up            # chạy lại, vài giây vì dùng lại engine
+nvidia-smi dmon -s pucm     # theo dõi VRAM / NVDEC / NVENC
 ```
 
 ### Khi nào engine bị dựng lại
@@ -264,11 +292,12 @@ make gpu-watch     # theo dõi VRAM / NVDEC / NVENC
 
 * Đổi model → tự dựng lại, không cần làm gì.
 * Đổi `config.pbtxt` (qua `tools/export_models.py`) → **không** tự dựng lại engine, nhưng
-  Triton nạp config mới khi khởi động lại. Chạy `make config` rồi `make down && make up`.
+  Triton nạp config mới khi khởi động lại. Sinh lại config trên máy dev
+  (`make config`, cần `uv`), commit, rồi trên máy đích `craneops-triton down && craneops-triton up`.
 * Muốn ép dựng lại tất cả:
 
 ```bash
-docker volume rm craneops_models && make up      # ~9 phút
+docker volume rm craneops_models && craneops-triton up      # ~9 phút
 ```
 
 ### Nâng cấp mã nguồn
@@ -276,7 +305,7 @@ docker volume rm craneops_models && make up      # ~9 phút
 Mã nguồn được mount `:ro` từ host, không nằm trong image. Nên:
 
 ```bash
-git pull && make down && make up
+git pull && craneops-triton down && craneops-triton up
 ```
 
 Chỉ cần build lại image khi đổi `build/triton.Dockerfile` hoặc `EMBEDDED_PUBLIC_KEY`.
@@ -356,10 +385,10 @@ Gần như luôn là **sai hợp đồng đầu vào**. Mọi model nhận **pix
 vẫn chạy, vẫn trả về chuỗi — chỉ là chuỗi sai. Đo được: đưa RGB vào `headcode_cls` làm độ
 chính xác tụt 100 % → 87,4 %. Chi tiết: [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-012.
 
-### Triton không lên sau `make up`
+### Triton không lên sau `craneops-triton up`
 
 ```bash
-make logs
+craneops-triton logs
 docker logs craneops-modelsvc-1        # modelsvc thất bại thì triton không bao giờ start
 docker inspect craneops-modelsvc-1 --format '{{.State.ExitCode}}'   # phải là 0
 ```
@@ -372,7 +401,7 @@ thái `starting` là bình thường.
 ## 9. Gỡ bỏ
 
 ```bash
-make down                          # dừng, giữ engine
+craneops-triton down                          # dừng, giữ engine
 docker volume rm craneops_models   # xoá engine (dựng lại mất ~9 phút)
 docker rmi craneops-triton:dev     # xoá image (~15 GB)
 ```

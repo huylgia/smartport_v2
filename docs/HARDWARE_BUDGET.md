@@ -5,7 +5,7 @@ cho các con số. `DESIGN_NOTES.md` ghi quyết định và lý do, rồi trỏ
 số sang cả hai nơi.
 
 Mỗi lần đổi pipeline hoặc model, chạy lại và cập nhật §6.1 (hiệu năng) / §6.2 (độ chính
-xác). Lệnh đầy đủ ở §7; ngắn gọn thì `make bench` và `make accuracy`.
+xác). Lệnh đầy đủ ở §7; ngắn gọn thì `craneops-triton bench` và `craneops-triton accuracy`.
 
 ---
 
@@ -498,6 +498,6 @@ uv run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --all
 uv run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --pipeline --rps 100
 
 # Độ chính xác từng model so với NHÃN (§6.2)
-make accuracy
+craneops-triton accuracy
 
 ```
