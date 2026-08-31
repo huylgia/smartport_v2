@@ -22,8 +22,11 @@ SERVICES=(triton ds)
 
 # Service có hỗ trợ lệnh này không — đọc từ chính bảng `#:` của nó, nên không có danh
 # sách thứ hai để trôi khỏi thực tế.
+#
+# `-x -F`: khớp NGUYÊN dòng, chuỗi thuần, không regex. Tên lệnh không phải mẫu, và biểu
+# thức lỏng ở đây từng cho `up` khớp nhầm dòng của `uninstall`.
 supports() {
-  print_commands "$BIN/craneops-$1" | grep -qE "^\s+\S*\b$2\b"
+  list_commands "$BIN/craneops-$1" | grep -qxF "$2"
 }
 
 run_all() {

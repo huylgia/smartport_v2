@@ -45,8 +45,18 @@ env_value() {
   printf '%s' "${v:-$fallback}"
 }
 
-# In bảng lệnh từ chính các dòng chú thích `#:` trong script gọi — một nguồn sự thật, nên
-# help không trôi khỏi danh sách lệnh thật.
+# Tên lệnh của một script, mỗi dòng một cái. KHÔNG màu, KHÔNG căn lề: đây là bản cho MÁY
+# đọc.
+#
+# ⚠️ Đừng để code khớp mẫu đọc đầu ra của `print_commands`. Bản đó có mã màu khi stdout là
+# terminal, và mã màu dính liền tên lệnh (`ESC[1mstatus`) nên `\bstatus\b` KHÔNG khớp —
+# lỗi chỉ hiện khi chạy trong terminal thật, còn qua pipe thì im lặng chạy đúng.
+list_commands() {
+  grep -E '^\s*#:' "$1" | sed -E 's/^\s*#:\s?//' | cut -d'|' -f1 | tr -d ' \t'
+}
+
+# Bảng lệnh cho NGƯỜI đọc. Cùng nguồn `#:` với list_commands, nên help không trôi khỏi
+# danh sách lệnh thật.
 print_commands() {
   local script="$1"
   grep -E '^\s*#:' "$script" | sed -E 's/^\s*#:\s?//' | while IFS='|' read -r cmd desc; do
