@@ -211,8 +211,14 @@ Cửa sổ evidence xa nhất là `-35 s` (camera đáy) với `delay: 40 s` ⇒
 | 30 phút (để triage) | 4,8 GB | ~2,1 GB |
 | 2 giờ | 19 GB | ~8 GB |
 
-Nằm gọn trong yêu cầu 50 GB. Sweeper phải chạy theo **cả dung lượng lẫn tuổi**, để một
-camera bitrate bất thường không làm đầy đĩa.
+Nằm gọn trong yêu cầu 50 GB. Sweeper chạy theo **cả dung lượng lẫn tuổi**, để một camera
+bitrate bất thường không làm đầy đĩa — hiện thực ở `ds_app/src/pipeline/sweeper.py`, mặc
+định giữ 30 phút / trần 20 GB.
+
+⚠️ Có một **sàn tuổi** (mặc định 5 phút) mà sweeper không vượt qua kể cả khi đã đầy đĩa: đó
+là cửa sổ `evidenced` còn cần. Vượt trần mà mọi đoạn đều trẻ hơn sàn ⇒ **không xoá gì** và
+báo `over_budget_bytes`. Cách xử lý đúng là hạ fps nguồn hoặc cấp thêm đĩa, **không** phải
+nới sàn — nới sàn là phá bằng chứng để cứu dung lượng.
 
 ### 2.7 fps xử lý mục tiêu theo vai trò
 
