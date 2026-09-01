@@ -186,7 +186,7 @@ nên cần một bước đối chiếu riêng:
 Cách cũ: lane_position_config = "1-351-1271-363_0-530-1271-557"   (hai đường)
      → point_side_of_line(tâm bbox) → lane "1" | "2" | "3"
 
-v2:  lane_zones = {"1": [[x,y],...], "2": [...], "3": [...]}   (mỗi lane một đa giác)
+v2:  lane1_zone = [[x,y],...]   lane2_zone = [...]   lane3_zone = [...]   (mỗi làn MỘT đa giác)
      → point-in-polygon → Lane | None
 ```
 
@@ -228,7 +228,7 @@ hơn và trả `None` khi bbox vắt qua hai lane — có nên bật cho camera 
 
 **Q2. Converter từ config cũ.** Hai đường + biên khung ảnh **suy ra được** ba đa giác:
 lane 1 = phía trên đường 1, lane 2 = giữa, lane 3 = phía dưới đường 2, cắt theo khung ảnh.
-Nghĩa là `tools/convert_legacy_config.py` sinh được lane_zones **tự động**, golden test
+Nghĩa là `tools/convert_legacy_config.py` sinh được vùng làn **tự động**, golden test
 chứng minh tương đương, rồi người vận hành mới tinh chỉnh lại theo phối cảnh thật.
 Cần chốt: có làm converter tự động không, hay vẽ lại tay ngay từ đầu?
 
@@ -258,7 +258,7 @@ DN-001 đã nghiêng về `d_norm = |Δcx| / w_container`) — cùng lý do.
 | Hạng mục | Thay đổi |
 |---|---|
 | `internal/pkg/geometry.py` | ✅ đã có `PolygonZone`, `LaneZones`, `Anchor`, `denormalize` |
-| `configs/cranes/*.yaml` | `lane_lines` → `lane_zones`, toạ độ **tương đối [0..1]** (camera 3, 5, 10 của GC03) |
+| `configs/rules/<cẩu>/{CRANE01,TCODE01}/config.json` | `lane_lines` → `lane1_zone`…`lane3_zone`, toạ độ **tương đối [0..1]** |
 | `tools/validate_config.py` | phải gọi `overlapping_lanes()` và fail nếu có |
 | `tools/convert_legacy_config.py` | sinh đa giác từ hai đường cũ **rồi chia cho 1280x720** — xem Q2 |
 | `RULES.md` `CRANE01`, `TCODE01` | đổi mô tả cách gán lane |

@@ -7,7 +7,12 @@ pipeline, không biết gì về GStreamer):
    im lặng lúc chạy. ``extra="forbid"`` cho **config** — ngược với message contract, nơi
    dùng ``extra="ignore"`` để chịu được nâng cấp lệch pha (xem ``common/message.py``).
 2. **Nội suy secret từ môi trường.** URL RTSP có mật khẩu nên **không bao giờ** nằm trong
-   YAML. YAML viết ``${CAM01_RTSP}``; giá trị đến từ env lúc load.
+   YAML. YAML **không nhắc tới URL**: camera nhóm theo chức năng, và tên biến môi trường
+   là vai trò + số thứ tự trong nhóm — camera tcode thứ hai đọc ``TCODE2``. Không có
+   trường nào khai tay, nên không có gì để trôi khỏi nhau.
+
+   Thêm một camera cho một chức năng đang có = **một mục trong YAML + một dòng env**.
+   Không đặt tên, không cấp phát số, không đụng docker-compose.
 3. **Suy ra thứ pipeline cần** từ vai trò camera — quan trọng nhất là *camera nào được
    decode*.
 
@@ -24,7 +29,6 @@ cần chúng. Đó là lý do nhánh ghi tách ở tầng bitstream (DN-014).
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any
@@ -32,7 +36,7 @@ from typing import Annotated, Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from common.enum import CameraRole, Lane
+from common.enum import CameraRole, ContainerDim, Lane
 
 __all__ = [
     "CameraConfig",
@@ -42,7 +46,6 @@ __all__ = [
     "load_crane",
 ]
 
-_ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 Relative = Annotated[float, Field(ge=0.0, le=1.0)]
 """Toạ độ tương đối trong khung ảnh. **Không phải pixel** — xem DN-002."""
@@ -53,11 +56,20 @@ class ConfigError(ValueError):
 
 
 class OcrRoi(BaseModel):
-    """Một vùng OCR tĩnh trên camera ``ccode``.
+    """Một vùng OCR tĩnh trên camera ``ccode``: cắt ở đâu, và vùng đó **nghĩa là gì**.
 
-    Vùng là **tĩnh, khai trong config**, không phải đầu ra của detector — đó là lý do
-    nhánh ccode dùng ``nvdspreprocess`` (nó nhận ROI theo từng nguồn) thay vì để PGIE tự
-    tìm vùng.
+    Cả hai nằm ở đây, và đây là config của ds_app — không tách sang rule. Lý do là hợp
+    đồng message: :class:`~common.message.OcrResult` mang sẵn ``lane`` và ``cont_dim``, nên
+    **probe của ds_app phải biết chúng để điền**. Để chúng ở tầng rule thì ds_app hoặc phải
+    đọc ngược config của rule, hoặc không điền nổi message — cả hai đều tệ hơn.
+
+    Thứ duy nhất KHÔNG ở đây là ngưỡng chấp nhận (``ocr_threshold`` của rule ``CCODE01``):
+    nó là bộ lọc áp *sau* khi đã đọc xong, nên probe cứ phát mọi kết quả kèm confidence và
+    rule quyết định. Đo trên v1: ngưỡng giống hệt nhau (0,95) ở cả 8 vùng, nên nó là một
+    giá trị của rule chứ không phải thuộc tính của vùng.
+
+    Vùng là **tĩnh, khai trong config**, không phải đầu ra của detector — đó là lý do nhánh
+    ccode dùng ``nvdspreprocess`` (nó nhận ROI theo từng nguồn) thay vì để PGIE tự tìm vùng.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -66,6 +78,11 @@ class OcrRoi(BaseModel):
     """Mã container nằm ngang hay dọc — chọn cặp model ``ccode_{det,rec}_{h,v}``."""
 
     lane: Lane
+    """Vùng này phủ làn nào. Đi thẳng vào ``OcrResult.lane``."""
+
+    cont_dim: ContainerDim
+    """Kích thước container vùng này ứng với. Đi thẳng vào ``OcrResult.cont_dim``."""
+
     roi: tuple[Relative, Relative, Relative, Relative]
     """``(x1, y1, x2, y2)`` tương đối."""
 
@@ -73,7 +90,8 @@ class OcrRoi(BaseModel):
     """``(cao, rộng)`` đưa vào detector. Thứ tự này ngược ``cv2.resize`` — dễ nhầm."""
 
     expand_ratio: tuple[float, float] = (1.0, 1.0)
-    ocr_threshold: Relative = 0.95
+    """Nới vùng trước khi cắt. **Khác nhau theo từng vùng** — đo trên v1 thấy 1,0/1,1 tới
+    1,3/1,15 — nên nó thuộc về vùng, không phải một giá trị chung."""
 
     @field_validator("roi")
     @classmethod
@@ -102,97 +120,120 @@ class CameraConfig(BaseModel):
     Camera cần biết cẩu của nó để dựng :attr:`code`. Bơm xuống thay vì bắt khai lại: khai
     hai chỗ là hai chỗ có thể lệch nhau."""
 
-    id: int = Field(ge=1)
-
-    name: str
-    """Mô tả cho người đọc ("Mặt phải trước"). **Không phải định danh** — đừng dùng nó để
-    khớp dữ liệu; nó đổi khi ai đó sửa cho dễ hiểu hơn."""
-
     role: CameraRole
+    """Vai trò, **bơm xuống từ khoá nhóm** trong ``cameras:`` — không khai trong thân."""
 
-    rtsp_record: str
-    """Nguồn RTSP. Trong YAML là ``${CAM01_RTSP}``; :func:`load_crane` thay bằng giá trị env."""
+    index: int = Field(default=1, ge=1)
+    """Vị trí trong nhóm cùng vai trò, đếm từ 1. **Bơm xuống** theo thứ tự khai báo."""
 
-    @field_validator("rtsp_record", "rtsp_model")
+    desc: str = ""
+    """Mô tả cho người đọc ("Mặt phải trước"). **Không phải định danh** — đừng dùng nó để
+    khớp dữ liệu; nó đổi khi ai đó sửa cho dễ hiểu hơn. Để trống được."""
+
+    stream: str
+    """URL RTSP **không kèm credential**: ``rtsp://113.160.225.15:1508//CH001.sdp``.
+
+    Toàn bộ định danh của luồng nằm ở đây, trong config — host, cổng, path. Đó là thứ
+    quyết định :attr:`code`, nên mã camera đọc được từ chính file này mà không cần biến môi
+    trường nào. Trước đây URL nằm ở env và hệ quả là mã camera **không tái tạo được** khi
+    review một diff hay chạy CI.
+
+    Credential thì KHÔNG ở đây: nó là bí mật, không phải cấu hình. Xem
+    :attr:`CraneConfig.rtsp_credential`.
+
+    **Một luồng cho cả ghi lẫn model.** Nhánh ghi tách ở tầng bitstream từ chính luồng này
+    (DN-014), nên không cần luồng thứ hai. Mở luồng riêng cho nhánh model là nhân đôi số
+    kết nối RTSP (10 → 20) chỉ để đổi lấy độ phân giải khác — chưa có nhu cầu đó, và khi
+    có thì thêm một trường ở đây, đừng thêm một trường luôn rỗng để chờ.
+    """
+
+    @field_validator("stream")
     @classmethod
-    def _looks_like_rtsp(cls, v: str | None) -> str | None:
-        """URL phải là URL, không phải một dòng cấu hình bị cắt dở.
-
-        ⚠️ Đã xảy ra: URL trích từ một định dạng phân tách bằng ``|`` mà quên dừng ở dấu
-        phân tách, cho ra ``rtsp://host:1508//CH001.sdp|h265|10|||``. GStreamer **không**
-        báo lỗi — nó giữ nguyên phần thừa trong path và gửi ``SETUP //CH001.sdp|h265|10|||``
-        cho camera. Camera đang dùng tình cờ bỏ qua phần thừa nên mọi thứ vẫn chạy; một
-        firmware khác sẽ trả 404, và lúc đó không có gì trỏ về nguyên nhân.
-        """
-        if v is None:
-            return None
+    def _no_credential(cls, v: str) -> str:
+        """URL trong config không được mang credential — file này nằm trong git."""
         url = v.strip()
-        # Kiểm tham chiếu chưa nội suy TRƯỚC: nó là chẩn đoán cụ thể nhất. Một `${VAR}`
-        # trần cũng trượt kiểm scheme, và khi đó thông báo "phải bắt đầu bằng rtsp://" chỉ
-        # tổ làm người đọc đi sửa nhầm chỗ.
         if "${" in url:
-            raise ValueError(
-                f"URL còn tham chiếu chưa nội suy: {url!r} — biến môi trường không được nạp?"
-            )
+            raise ValueError(f"stream còn tham chiếu chưa nội suy: {url!r}")
         if not url.startswith(("rtsp://", "rtsps://")):
-            raise ValueError(f"URL phải bắt đầu bằng rtsp:// hoặc rtsps://, nhận {url!r}")
+            raise ValueError(f"stream phải bắt đầu bằng rtsp:// hoặc rtsps://, nhận {url!r}")
+        if "@" in url:
+            raise ValueError(
+                f"stream chứa credential: {url!r}. Bỏ phần `user:pass@` ra — config nằm "
+                f"trong git. Credential đặt ở `rtsp_credential` cấp cẩu, lấy từ env."
+            )
         for junk in ("|", " ", "\t"):
             if junk in url:
                 raise ValueError(
-                    f"URL chứa ký tự {junk!r} — gần như chắc chắn là trích thiếu từ một "
+                    f"stream chứa ký tự {junk!r} — gần như chắc chắn là trích thiếu từ một "
                     f"định dạng có phân tách: {url!r}"
                 )
         return url
 
-    rtsp_model: str | None = None
-    """Luồng riêng cho nhánh model. ``None`` (mặc định) ⇒ **tee từ ``rtsp_record``**, chỉ
-    MỘT kết nối RTSP cho cả ghi lẫn model. Chỉ đặt khi camera có sub-stream và ta thật sự
-    muốn model chạy ở độ phân giải khác — mỗi giá trị khác ``None`` là thêm một kết nối
-    RTSP nữa, nhân với 10 camera thì đó là 20 kết nối."""
+    code: str = ""
+    """Mã camera, **sinh ra rồi kiểm lại** — không viết tay.
 
-    lane_zones: dict[Lane, list[tuple[Relative, Relative]]] = Field(default_factory=dict)
-    """Vùng lane dạng đa giác, toạ độ tương đối.
+    ``make codes`` ghi nó vào YAML để mã hiện ngay trong file, cạnh camera nó thuộc về; đó
+    là thứ các service khác khoá config theo (``configs/rules/<cẩu>/<rule>/config.json``).
+    Nhưng để trống thì nó vẫn tự suy từ :attr:`stream`, và khai **sai** thì load báo lỗi:
+    hiện ra được nhưng không trôi được.
+    """
 
-    Khai **theo từng camera** chứ không suy từ một bộ đường chung: camera 3 và camera 10
-    nhìn cùng khu vực từ hai hướng nên vùng của chúng ngược chiều nhau. Xem DN-002."""
-
-    ocr_rois: list[OcrRoi] = Field(default_factory=list)
+    credential: str = ""
+    """``user:pass``, **bơm xuống** từ :class:`CraneConfig` lúc load. Không khai trong YAML."""
 
     @model_validator(mode="after")
-    def _role_consistency(self) -> CameraConfig:
-        if self.ocr_rois and self.role is not CameraRole.CCODE:
+    def _code_matches_stream(self) -> CameraConfig:
+        derived = self._derive_code()
+        if self.code and self.code != derived:
             raise ValueError(
-                f"camera {self.id} vai trò {self.role} nhưng khai ocr_rois; "
-                f"chỉ vai trò 'ccode' mới có vùng OCR"
+                f"camera {self.key!r}: code khai {self.code!r} nhưng URL cho {derived!r}.\n"
+                f"   Mã suy từ crane_id + host + cổng — sửa `stream` hoặc chạy `make codes`.\n"
+                f"   Để lệch thì các service khác khoá config theo một mã không tồn tại."
             )
-        if self.lane_zones and not self.role.runs_model:
-            raise ValueError(
-                f"camera {self.id} vai trò {self.role} không chạy model nhưng khai "
-                f"lane_zones — vùng lane sẽ không bao giờ được dùng"
-            )
+        if not self.code:
+            object.__setattr__(self, "code", derived)
         return self
 
-    @property
-    def code(self) -> str:
-        """Mã camera chuẩn: ``<mã cẩu>_<ip>_<cổng>``, dấu chấm trong IP đổi thành gạch dưới.
-
-        Ví dụ: ``GC03_113_160_225_15_1508``.
-
-        Suy từ URL chứ không khai riêng: một trường khai tay là một trường có thể trôi khỏi
-        URL, và khi đó dữ liệu bị gán cho nhầm camera mà không có gì báo.
-
-        ⚠️ **Phải có cổng.** Cả 10 camera GC03 dùng chung IP ``113.160.225.15`` — đó là
-        gateway NAT, mỗi cổng là một camera. Mã chỉ gồm IP sẽ giống hệt nhau cho cả 10.
-
-        Tiền tố mã cẩu để mã còn phân biệt được khi nhiều cẩu gửi về cùng một nơi: hai cẩu
-        sau NAT riêng có thể trùng dải IP nội bộ.
-        """
-        host = self.rtsp_record.split("://", 1)[1].split("@")[-1].split("/")[0]
+    def _derive_code(self) -> str:
+        host = self.stream.split("://", 1)[1].split("/")[0]
         ip, _, port = host.partition(":")
         parts = [self.crane_id, ip.replace(".", "_")]
         if port:
             parts.append(port)
         return "_".join(p for p in parts if p)
+
+    @property
+    def rtsp_record(self) -> str:
+        """URL đầy đủ để kết nối — :attr:`stream` có chèn credential."""
+        if not self.credential:
+            return self.stream
+        scheme, rest = self.stream.split("://", 1)
+        return f"{scheme}://{self.credential}@{rest}"
+
+    @property
+    def key(self) -> str:
+        """Tên ngắn của camera: vai trò + số thứ tự trong vai trò. ``tcode2``, ``ccode5``.
+
+        Đây là thứ người và CLI dùng (``--cam tcode2``). Nó nói đúng cái người vận hành
+        quan tâm — *camera này làm việc gì* — chứ không phải một số tự cấp phát.
+        """
+        return f"{self.role.value}{self.index}"
+
+    ocr_rois: list[OcrRoi] = Field(default_factory=list)
+    """Vùng OCR tĩnh. Chỉ camera ``ccode``.
+
+    ⚠️ **Vùng làn (`laneN_zone`) KHÔNG nằm ở đây** — đó là config của rule
+    (``configs/rules/<cẩu>/``), ds_app không đọc nó. Khác nhau ở chỗ: vùng OCR quyết định
+    ds_app cắt gì đưa cho Triton, còn vùng làn chỉ dùng để suy ra xe đang ở làn nào."""
+
+    @model_validator(mode="after")
+    def _role_consistency(self) -> CameraConfig:
+        if self.ocr_rois and self.role is not CameraRole.CCODE:
+            raise ValueError(
+                f"camera {self.key!r} vai trò {self.role} nhưng khai ocr_rois; "
+                f"chỉ vai trò 'ccode' mới có vùng OCR"
+            )
+        return self
 
     @property
     def decodes(self) -> bool:
@@ -211,31 +252,54 @@ class CraneConfig(BaseModel):
     crane_id: str = Field(min_length=1)
     berth_no: str = Field(min_length=1)
     num_lane: int = Field(ge=1, le=9)
-    cameras: list[CameraConfig] = Field(min_length=1)
+    rtsp_credential: str = ""
+    """``user:pass`` dùng chung cho mọi camera của cẩu, **lấy từ env lúc load**.
+
+    Đây là thứ DUY NHẤT không nằm trong file này, vì nó là bí mật chứ không phải cấu hình.
+    Mọi thứ định danh luồng — host, cổng, path — nằm trong ``stream`` của từng camera, nên
+    ``camera_code`` đọc được từ chính config mà không cần biến môi trường nào.
+
+    Cả 10 camera GC03 dùng chung một credential (đo 2026-09-01). Nếu về sau có camera cần
+    credential riêng thì thêm trường ở tầng camera; đừng đưa cả URL ngược lại vào env.
+    """
+
+    cameras: dict[CameraRole, list[CameraConfig]] = Field(min_length=1)
+    """Camera **nhóm theo chức năng**: ``cameras.tcode`` là danh sách camera làm việc tcode.
+
+    Hình dạng này chọn theo câu hỏi hay gặp nhất khi vận hành — *"thêm một camera nữa cho
+    tính năng này"*. Câu trả lời là thêm một mục vào đúng danh sách, không phải đặt tên,
+    không phải cấp phát số, không phải đụng file nào khác.
+
+    Khoá nhóm là :class:`CameraRole`, nên gõ sai vai trò là lỗi lúc load kèm danh sách vai
+    trò hợp lệ — không phải một nhóm rỗng bị bỏ qua im lặng.
+    """
 
     @model_validator(mode="before")
     @classmethod
-    def _stamp_crane_id(cls, data: Any) -> Any:
-        """Bơm ``crane_id`` xuống từng camera.
+    def _stamp_identity(cls, data: Any) -> Any:
+        """Bơm ``crane_id``, ``role`` và ``index`` xuống từng camera.
 
-        Ghi đè bất cứ giá trị nào có sẵn: đây là trường dẫn xuất, và để người dùng khai đè
-        nghĩa là mở đường cho một camera tự nhận thuộc cẩu khác.
+        Cả ba là trường **dẫn xuất** từ vị trí trong file. Ghi đè bất cứ giá trị nào có
+        sẵn: để người dùng khai đè nghĩa là mở đường cho một camera tự nhận thuộc cẩu khác,
+        hoặc tự nhận vai trò khác vai trò của nhóm chứa nó — và khi đó nó đọc URL của
+        camera khác.
         """
-        if isinstance(data, dict) and isinstance(data.get("cameras"), list):
+        if isinstance(data, dict) and isinstance(data.get("cameras"), dict):
             crane_id = data.get("crane_id", "")
-            for cam in data["cameras"]:
-                if isinstance(cam, dict):
-                    cam["crane_id"] = crane_id
+            for role, group in data["cameras"].items():
+                if not isinstance(group, list):
+                    continue
+                for i, cam in enumerate(group, start=1):
+                    if isinstance(cam, dict):
+                        cam["crane_id"] = crane_id
+                        cam["role"] = role
+                        cam["index"] = i
+                        cam["credential"] = data.get("rtsp_credential", "")
         return data
 
     @model_validator(mode="after")
     def _consistent(self) -> CraneConfig:
-        ids = [c.id for c in self.cameras]
-        if len(ids) != len(set(ids)):
-            dup_ids = sorted({i for i in ids if ids.count(i) > 1})
-            raise ValueError(f"id camera trùng: {dup_ids}")
-
-        codes = [c.code for c in self.cameras]
+        codes = [c.code for c in self.record_cameras]
         if len(codes) != len(set(codes)):
             dup_codes = sorted({c for c in codes if codes.count(c) > 1})
             raise ValueError(
@@ -244,20 +308,13 @@ class CraneConfig(BaseModel):
                 f"liệu của camera này bị gán cho camera kia mà không có gì báo."
             )
 
-        for cam in self.cameras:
-            for lane in cam.lane_zones:
-                if int(lane.value) > self.num_lane:
-                    raise ValueError(
-                        f"camera {cam.id} khai lane {lane.value} nhưng cẩu chỉ có "
-                        f"{self.num_lane} lane"
-                    )
         # Không có camera nào decode nghĩa là cấu hình này không sinh ra suy luận nào —
         # gần như chắc chắn là lỗi gõ vai trò, và nó sẽ biểu hiện thành "hệ chạy mà không
         # bao giờ ra kết quả", loại lỗi tốn nhiều giờ nhất để lần.
-        if not any(c.decodes for c in self.cameras):
+        if not any(c.decodes for c in self.record_cameras):
             raise ValueError(
-                "không camera nào chạy model — kiểm lại trường `role`; "
-                f"đang có: {sorted({c.role.value for c in self.cameras})}"
+                "không camera nào chạy model — kiểm lại các nhóm trong `cameras:`; "
+                f"đang có: {sorted(r.value for r in self.cameras)}"
             )
         return self
 
@@ -268,50 +325,46 @@ class CraneConfig(BaseModel):
         Thứ tự này là **chỉ số nguồn của ``nvstreammux``**, nên nó phải ổn định: đổi thứ
         tự trong YAML là đổi ``pad_index``, và probe dùng chỉ số đó để biết khung thuộc
         camera nào."""
-        return [c for c in self.cameras if c.decodes]
+        return [c for c in self.record_cameras if c.decodes]
 
     @property
     def record_cameras(self) -> list[CameraConfig]:
         """Camera được ghi hình — **tất cả**. Ảnh bằng chứng 6 mặt cần cả camera không decode."""
-        return list(self.cameras)
+        return [cam for group in self.cameras.values() for cam in group]
 
-    def camera(self, cam_id: int) -> CameraConfig:
-        try:
-            return next(c for c in self.cameras if c.id == cam_id)
-        except StopIteration:
-            known = ", ".join(str(c.id) for c in self.cameras)
-            raise KeyError(
-                f"cẩu {self.crane_id} không có camera {cam_id}; đang có: {known}"
-            ) from None
+    def by_role(self, role: CameraRole) -> list[CameraConfig]:
+        """Mọi camera làm một chức năng, theo thứ tự khai báo. Không có thì trả danh sách rỗng."""
+        return list(self.cameras.get(role, ()))
+
+    def camera(self, key: str) -> CameraConfig:
+        """Camera theo tên ngắn (``tcode2``). Không có thì báo kèm danh sách đang có."""
+        for cam in self.record_cameras:
+            if cam.key == key:
+                return cam
+        known = ", ".join(c.key for c in self.record_cameras)
+        raise KeyError(f"cẩu {self.crane_id} không có camera {key!r}; đang có: {known}") from None
 
 
-def _resolve_env(value: Any, *, where: str, env: Mapping[str, str]) -> Any:
-    """Thay ``${TÊN}`` bằng giá trị môi trường.
+_CRED_ENV = "CRANEOPS_RTSP_CRED"
 
-    Chỉ nhận **toàn bộ** chuỗi là một tham chiếu, không nội suy giữa chuỗi: một URL RTSP
-    ghép từ nhiều mảnh là cách dễ nhất để lộ mật khẩu vào log khi chỉ một mảnh thiếu.
+
+def _inject_credential(raw: Any, *, env: Mapping[str, str]) -> None:
+    """Bơm credential RTSP từ môi trường vào config đã đọc.
+
+    Chỉ MỘT biến cho cả cẩu. Bản trước có một biến cho mỗi camera, và hệ quả là
+    ``camera_code`` — thứ các service khác khoá config theo — **không tái tạo được** nếu
+    không có file env: CI không xác thực nổi config đã commit, và người review một diff
+    không biết mã nào ứng với camera nào.
     """
-    if not isinstance(value, str):
-        return value
-    match = _ENV_REF.match(value.strip())
-    if match is None:
-        return value
-    name = match.group(1)
-    resolved = env.get(name)
-    if not resolved:
-        raise ConfigError(
-            f"{where}: cần biến môi trường {name} (config ghi '{value}') nhưng nó trống. "
-            f"Secret không nằm trong YAML — đặt {name} trong file env của service."
-        )
-    return resolved
-
-
-def _walk(node: Any, *, where: str, env: Mapping[str, str]) -> Any:
-    if isinstance(node, dict):
-        return {k: _walk(v, where=f"{where}.{k}", env=env) for k, v in node.items()}
-    if isinstance(node, list):
-        return [_walk(v, where=f"{where}[{i}]", env=env) for i, v in enumerate(node)]
-    return _resolve_env(node, where=where, env=env)
+    if not isinstance(raw, dict):
+        return
+    if raw.get("rtsp_credential"):
+        return  # đã khai tường minh (test); không đụng
+    cred = env.get(_CRED_ENV, "").strip()
+    if cred:
+        raw["rtsp_credential"] = cred
+    # Không có credential thì vẫn load được: `camera_code`, vai trò, vùng OCR đều đọc được
+    # mà không cần nó. Chỉ lúc thật sự kết nối RTSP mới thiếu — và lúc đó GStreamer báo rõ.
 
 
 def load_crane(path: str | Path, *, env: Mapping[str, str] | None = None) -> CraneConfig:
@@ -336,8 +389,9 @@ def load_crane(path: str | Path, *, env: Mapping[str, str] | None = None) -> Cra
     if not isinstance(raw, dict):
         raise ConfigError(f"{p}: nội dung phải là một ánh xạ, nhận {type(raw).__name__}")
 
-    resolved = _walk(raw, where=str(p), env=os.environ if env is None else env)
+    src = os.environ if env is None else env
+    _inject_credential(raw, env=src)
     try:
-        return CraneConfig.model_validate(resolved)
+        return CraneConfig.model_validate(raw)
     except ValueError as exc:
         raise ConfigError(f"{p}: {exc}") from exc

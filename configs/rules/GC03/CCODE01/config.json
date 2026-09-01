@@ -1,0 +1,7 @@
+{
+  "GC03_113_160_225_15_1508": {"ocr_threshold":0.95,"top_k":5,"sharpness_min":1000.0,"pair_distance_px":60.0,"bitmap_threshold":0.1,"box_threshold":0.2,"character_threshold":0.3,"iso_threshold":0.95,"min_streak":3},
+  "GC03_113_160_225_15_1511": {"ocr_threshold":0.95,"top_k":5,"sharpness_min":1000.0,"pair_distance_px":60.0,"bitmap_threshold":0.1,"box_threshold":0.2,"character_threshold":0.3,"iso_threshold":0.95,"min_streak":3},
+  "GC03_113_160_225_15_1513": {"ocr_threshold":0.95,"top_k":5,"sharpness_min":1000.0,"pair_distance_px":60.0,"bitmap_threshold":0.1,"box_threshold":0.2,"character_threshold":0.3,"iso_threshold":0.95,"min_streak":3},
+  "GC03_113_160_225_15_1514": {"ocr_threshold":0.95,"top_k":5,"sharpness_min":1000.0,"pair_distance_px":60.0,"bitmap_threshold":0.1,"box_threshold":0.2,"character_threshold":0.3,"iso_threshold":0.95,"min_streak":3},
+  "GC03_113_160_225_15_1515": {"ocr_threshold":0.95,"top_k":5,"sharpness_min":1000.0,"pair_distance_px":60.0,"bitmap_threshold":0.1,"box_threshold":0.2,"character_threshold":0.3,"iso_threshold":0.95,"min_streak":3}
+}

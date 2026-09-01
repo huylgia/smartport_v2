@@ -15,8 +15,11 @@ thông báo lỗi nào**. Xem ``docs/DESIGN_NOTES.md`` DN-014.
 
 Chạy::
 
-    make record CAM=1 DUR=60
-    make record CAM=1 DUR=60 META=1
+    craneops-ds record --cam ccode_front_right --duration 60
+    craneops-ds record --cam ccode_front_right --duration 60 --meta
+
+``--cam`` nhận **khoá camera** trong ``configs/cranes/<cẩu>.yaml``, không phải số. Gõ sai
+thì thông báo liệt kê mọi khoá đang có.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync  # noqa: E402
 def _args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=str(REPO / "configs/cranes/GC03.yaml"))
-    ap.add_argument("--cam", type=int, required=True, help="id camera trong config")
+    ap.add_argument("--cam", required=True, help="khoá camera trong config (vd: ccode_front_right)")
     ap.add_argument("--out", default="/var/lib/craneops/rec")
     ap.add_argument("--duration", type=int, default=60, help="giây; 0 = chạy mãi")
     ap.add_argument("--segment-sec", type=float, default=10.0, help="độ dài đoạn, giây")
@@ -116,11 +119,16 @@ def main() -> int:
     from gi.repository import GLib, Gst
 
     crane = load_crane(args.config)
-    camera = crane.camera(args.cam)
+    try:
+        camera = crane.camera(args.cam)
+    except KeyError as exc:
+        # KeyError của config đã liệt kê khoá hợp lệ; in trần thì nó dính thêm dấu nháy.
+        print(str(exc).strip('"'), file=sys.stderr)  # noqa: T201
+        raise SystemExit(2) from None
     print(  # noqa: T201
-        f"cẩu {crane.crane_id} · camera {camera.id} · vai trò {camera.role}\n"
+        f"cẩu {crane.crane_id} · camera {camera.key} · vai trò {camera.role}\n"
         f"  mã       {camera.code}\n"
-        f"  mô tả    {camera.name}\n"
+        f"  mô tả    {camera.desc or '(không có)'}\n"
         f"  decode   {'có' if camera.decodes else 'KHÔNG (chỉ ghi hình)'}\n"
         f"  ghi vào  {args.out}/{camera.code}/   (đoạn ~{args.segment_sec:g}s)",
         flush=True,

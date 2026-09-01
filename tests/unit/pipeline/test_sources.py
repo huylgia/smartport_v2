@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,15 +10,15 @@ from common.config import CameraConfig, load_crane
 from common.enum import CameraRole
 from ds_app.src.pipeline.elements import DEC_QUEUE, NVURISRCBIN, SOURCE_QUEUE
 from ds_app.src.pipeline.sources import build_sources, make_source_bin, replace_source
+from tests.conftest import GC03
 
-REPO = Path(__file__).resolve().parents[3]
-GC03 = REPO / "configs" / "cranes" / "GC03.yaml"
-# Cổng riêng cho từng camera, như thực tế: 10 camera GC03 chung một IP, khác cổng.
-ENV = {f"CAM{i:02d}_RTSP": f"rtsp://10.0.0.1:{1500 + i}/s" for i in range(1, 12)}
+# Không cần env: định danh luồng nằm trong chính config, nên `load_crane` cho đúng mã
+# production mà không phải dựng lại URL nào.
+ENV: dict[str, str] = {}
 
 
-def _cam(role: CameraRole, cam_id: int = 1, **kw: Any) -> CameraConfig:
-    return CameraConfig(id=cam_id, name="x", role=role, rtsp_record="rtsp://h/s", **kw)
+def _cam(role: CameraRole, index: int = 1, **kw: Any) -> CameraConfig:
+    return CameraConfig(role=role, index=index, desc="x", stream="rtsp://h:1/s", **kw)
 
 
 # ---------------------------------------------------------------- tập nguồn
@@ -47,7 +46,7 @@ def test_only_decoding_cameras_reach_the_muxer(gst: Any) -> None:
 
     assert len(pad_map) == 8
     assert len(set(pad_map.values())) == 8
-    codes = {c.code for c in crane.cameras if not c.decodes}
+    codes = {c.code for c in crane.record_cameras if not c.decodes}
     assert not (codes & set(pad_map.values())), "camera chỉ-ghi không được decode"
 
 
@@ -200,7 +199,7 @@ def test_replace_source_keeps_the_muxer_pad(gst: Any) -> None:
     queue_before = pipeline.get_by_name("queue_source_0")
     pad_before = queue_before.get_static_pad("sink")
 
-    fresh = replace_source(gst, pipeline, 0, crane.cameras[0])
+    fresh = replace_source(gst, pipeline, 0, crane.record_cameras[0])
 
     assert fresh is not pipeline.get_by_name("khong-co")
     assert pipeline.get_by_name("queue_source_0") is queue_before, "queue phải được giữ nguyên"
@@ -219,9 +218,9 @@ def test_replace_source_reattaches_recording(gst: Any) -> None:
 
     build_sources(gst, pipeline, crane, mux, recorder=recorder)
     attached.clear()
-    replace_source(gst, pipeline, 0, crane.cameras[0], recorder=recorder)
+    replace_source(gst, pipeline, 0, crane.record_cameras[0], recorder=recorder)
 
-    assert attached == [crane.cameras[0].code]
+    assert attached == [crane.record_cameras[0].code]
 
 
 def test_replace_missing_source_is_an_error(gst: Any) -> None:

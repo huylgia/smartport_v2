@@ -28,7 +28,7 @@ cmd_logs() { require_docker; compose logs --tail 40; }
 cmd_up() {
   note "ds_app chưa có service chạy dài: nhánh model (nvstreammux → nvinferserver → Kafka)"
   note "là Phase 3b. Ghi hình chạy theo lệnh, không theo daemon:"
-  note "    craneops-ds record --cam 1 --duration 0"
+  note "    craneops-ds record --cam ccode1 --duration 0"
   # Thoát 0: không có gì hỏng cả. Thoát khác 0 ở đây sẽ làm `craneops up` đỏ mỗi lần chạy,
   # và một lỗi luôn đỏ là một lỗi không ai còn đọc.
 }
@@ -68,7 +68,7 @@ cmd_status() {
 }
 
 cmd_record() {
-  local cam=1 dur=60 seg="" meta=""
+  local cam=ccode1 dur=60 seg="" meta=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --cam) cam="$2"; shift 2 ;;
@@ -76,7 +76,8 @@ cmd_record() {
       --segment-sec) seg="$2"; shift 2 ;;    # độ dài MỖI ĐOẠN, khác --duration
       --meta) meta=1; shift ;;
       -h|--help)
-        printf 'craneops-ds record [--cam N] [--duration GIÂY] [--segment-sec GIÂY] [--meta]\n\n'
+        printf 'craneops-ds record [--cam KHOÁ] [--duration GIÂY] [--segment-sec GIÂY] [--meta]\n\n'
+        printf '  --cam          khoá camera: vai trò + số thứ tự (ccode1, tcode2). `doctor` liệt kê\n'
         printf '  --duration     thời gian CHẠY; 0 = chạy mãi (Ctrl-C để dừng)\n'
         printf '  --segment-sec  độ dài MỖI ĐOẠN; đây là độ trễ tệ nhất của bằng chứng\n'
         printf '  --meta         in metadata khung của DeepStream\n'

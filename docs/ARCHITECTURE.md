@@ -100,6 +100,55 @@ cho 6 camera ccode trên CPU 20 luồng sẽ nghẽn cả pipeline. Đưa xuốn
 backend với `instance_group count: 3` ⇒ 3 process thật, không vướng GIL, và
 `dynamic_batching` gom crop OCR của cả 6 camera vào một batch.
 
+## Ba tầng config
+
+Ranh giới theo đúng một câu hỏi: **ai đọc nó, và đổi nó thì phải dựng lại cái gì?**
+
+| Tầng | Ở đâu | Nội dung | Đổi thì |
+|---|---|---|---|
+| Triton | `triton/repo/**/config.pbtxt` | hình dạng model, batching, instance | restart Triton |
+| ds_app | `configs/cranes/<CẨU>.yaml` | đăng ký camera (URL→mã), vai trò, vùng cắt | restart pipeline |
+| rule | `configs/rules/<CẨU>/<RULE>/config.json` | ngưỡng, vùng lane, cửa sổ thời gian | **hot-reload** |
+
+**Một cẩu là một "epic"**: nó có bộ rule của nó, và mỗi rule có config riêng cho từng
+camera của cẩu đó. Đăng ký URL camera ở tầng ds_app sinh ra `camera_code`; chính mã đó là
+khoá của config rule.
+
+```
+configs/cranes/GC03.yaml           ccode1 … tcode2 … → GC03_113_160_225_15_1508 …
+                                                              │
+configs/rules/GC03/CCODE01/config.json   { "GC03_113_160_225_15_1508": {…} }
+configs/rules/GC03/TCODE01/config.json   { "GC03_113_160_225_15_1510": {…} }
+```
+
+Khoá theo `camera_code` chứ không theo tên ngắn (`tcode1`) vì đó chính là chuỗi đến trên
+`PerceptionMessage`: rule tra config bằng đúng field nó nhận được, không có bảng dịch nào
+ở giữa để lệch.
+
+⚠️ **Hệ quả:** khoá của config rule phải **tái tạo được mà không cần secret**. Vì vậy toàn
+bộ định danh luồng — host, cổng, path — nằm trong `configs/cranes/*.yaml` dưới `stream`, và
+chỉ credential ở env (`CRANEOPS_RTSP_CRED`). `load_crane(…, env={})` cho đúng mã production,
+nên CI xác thực được config đã commit và người review một diff biết mã nào ứng với camera nào.
+
+`code` được **sinh ra rồi kiểm lại**: `make codes` ghi nó vào YAML cạnh camera nó thuộc về,
+và `load_crane` từ chối một `code` không khớp `stream`. Đọc được, nhưng không trôi được.
+`make codes` cũng báo mọi config rule còn khoá theo mã cũ sau khi một camera đổi IP/cổng.
+
+`ocr_rois` nằm **nguyên cụm** ở tầng ds_app, kể cả `lane` và `cont_dim`. Không tách, vì
+hợp đồng message quyết định: `OcrResult` mang sẵn hai trường đó, nên probe của ds_app phải
+biết chúng để điền — tách sang rule thì ds_app phải đọc ngược config của rule. Thứ duy nhất
+ở tầng rule là `ocr_threshold`: nó là bộ lọc áp **sau** khi đọc, và đo trên v1 thấy cả 8
+vùng dùng chung một giá trị, nên nó là tham số hiệu chỉnh chứ không phải thuộc tính của vùng.
+
+`config.json` là ánh xạ phẳng và **mỗi camera đúng một dòng**, nên số camera được cấu hình
+đếm được bằng mắt lẫn bằng `wc -l`. Vùng làn khai phẳng — `lane1_zone`, `lane2_zone`,
+`lane3_zone` — vì `Lane` là tập đóng đúng ba giá trị và mỗi làn đúng một đa giác.
+
+Thiếu config cho một camera là **lỗi**, không phải mặc định: config là một dict, camera
+vắng mặt thì rule không xử lý nó — hệ chạy, log sạch, và camera ấy không bao giờ sinh
+signal. `common/rule_config.py` đòi đủ mọi camera đúng vai trò và từ chối mã lạ;
+`tools/rule_configs.py init <CẨU>` sinh khung để không ai phải chép mã tay.
+
 ## Ba registry
 
 | Registry | Đăng ký cái gì | Dùng ở đâu |
@@ -120,7 +169,7 @@ deserialize cùng một message 4 lần. `services/ruled` host được **một 
 
 ```yaml
 rule_groups:
-  ccode:  [CCODE01, CCODE02]
+  ccode:  [CCODE01]
   tcode:  [TCODE01]
   crane:  [CRANE01, CRANE02, CRANE03, CRANE04]
   bottom: [BOT01]

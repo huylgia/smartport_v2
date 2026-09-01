@@ -131,8 +131,7 @@ vòng đời. Gộp chung thì đổi một biến của Triton lại phải kh�
 bị `.gitignore` chặn.
 
 ```bash
-CAM01_RTSP=rtsp://<user>:<pass>@113.160.225.15:1508//CH001.sdp
-CAM02_RTSP=...                      # đủ 10 camera
+CRANEOPS_RTSP_CRED=<user>:<pass>    # credential dùng chung cho MỌI camera
 CRANEOPS_REC_DIR=/var/lib/craneops/rec
 RETAIN_SEC=1800
 ```
@@ -145,7 +144,56 @@ mà camera có thể bỏ qua, nên lỗi sống sót tới lúc gặp firmware 
 
 `CRANEOPS_REC_DIR` tương đối thì tính từ `build/`, không phải gốc repo.
 
-### 4.1 Mã camera suy từ URL, không khai
+### 4.1 Thêm camera
+
+Camera nhóm theo **chức năng** trong `configs/cranes/<cẩu>.yaml`. Thêm một camera cho chức
+năng đang có — camera ccode thứ 6 để tăng độ chính xác, hay một camera tcode dự phòng — là
+**một mục YAML**:
+
+Một camera là **một dòng** — đếm được bằng mắt, và một diff đổi camera nào thì thấy ngay
+camera đó:
+
+```yaml
+cameras:
+  ccode:
+    - {code: GC03_113_160_225_15_1508, stream: rtsp://113.160.225.15:1508//CH001.sdp, desc: Mặt phải trước}
+    # … 4 dòng nữa …
+    - {stream: rtsp://113.160.225.15:1518//CH001.sdp, desc: Mặt phải trước - dự phòng}   # ← thêm
+```
+
+```bash
+make codes      # điền `code`, xếp lại thứ tự trường, đối chiếu với mọi service
+```
+
+Hết. Không đặt tên, không cấp phát số, không đụng `.env.ds` lẫn `docker-compose.ds.yml`.
+
+**URL không mang credential.** Host, cổng, path — tất cả định danh luồng — nằm trong config;
+chỉ `CRANEOPS_RTSP_CRED` ở env, vì nó là bí mật chứ không phải cấu hình. Nhờ vậy `code` đọc
+được từ chính file config: CI xác thực được, và người review một diff biết ngay mã nào ứng
+với camera nào.
+
+**`code` sinh ra rồi kiểm lại.** `make codes` ghi nó vào YAML; sửa tay mà lệch `stream` thì
+load báo lỗi. Nó hiện ra được nhưng không trôi được — quan trọng vì `code` là chuỗi đi xuyên
+cả hệ: ds_app đặt lên `PerceptionMessage`, rule tra config theo nó, evidence đặt tên thư mục
+segment theo nó.
+
+`craneops-ds doctor` in bảng đối chiếu để kiểm sau mỗi lần sửa:
+
+```
+=== camera ===
+  ccode1   GC03_113_160_225_15_1508  rtsp://113.160.225.15:1508//CH001.sdp  Mặt phải trước
+  tcode2   GC03_113_160_225_15_1512  rtsp://113.160.225.15:1512//CH001.sdp  Đầu kéo - Lane 1
+```
+
+⚠️ **Đổi IP/cổng của một camera là đổi mã của nó.** `make codes` cập nhật YAML và báo ngay
+những config rule đang khoá theo mã cũ — đừng bỏ qua cảnh báo đó, vì rule không tìm thấy
+config sẽ **im lặng** không xử lý camera ấy.
+
+⚠️ **Mỗi camera chạy model là thêm tải NVDEC.** Ngân sách ở
+[HARDWARE_BUDGET.md](HARDWARE_BUDGET.md) §2.2 — vượt trần thì **mọi** camera cùng tụt fps,
+không phải camera mới bị bỏ. Camera chỉ để ghi hình thì đặt vai trò `evidence_only`.
+
+### 4.2 Mã camera suy từ URL, không khai
 
 Định danh là `<mã cẩu>_<ip>_<cổng>`, ví dụ `GC03_113_160_225_15_1508`. Nó là tên thư mục
 ghi hình và là trường `camera_code` trong message, nên hai thứ đó không thể trôi khỏi nhau.
@@ -184,9 +232,9 @@ lỗi) nhưng cách sửa hoàn toàn khác.
 ### 5.2 Ghi hình
 
 ```bash
-craneops-ds record --cam 1 --duration 60                    # chạy 60 giây rồi dừng
-craneops-ds record --cam 1 --duration 0                     # chạy mãi, Ctrl-C để dừng
-craneops-ds record --cam 1 --duration 0 --segment-sec 60# mỗi đoạn 60 giây thay vì 10
+craneops-ds record --cam ccode1 --duration 60               # chạy 60 giây rồi dừng
+craneops-ds record --cam tcode2 --duration 0                 # chạy mãi, Ctrl-C để dừng
+craneops-ds record --cam ccode1 --duration 0 --segment-sec 60   # đoạn 60 giây thay vì 10
 ```
 
 `DUR` là **thời gian chạy**, `SEGMENT_SEC` là **độ dài mỗi đoạn** — hai thứ khác nhau. Đặt
@@ -243,7 +291,7 @@ nvidia-smi dmon -s pucm      # cột enc PHẢI là 0; dec ~1-2 % cho một came
 ### 5.3 Xem metadata DeepStream trả về
 
 ```bash
-craneops-ds record --cam 1 --duration 60 --meta
+craneops-ds record --cam ccode1 --duration 60 --meta
 ```
 
 ```
@@ -270,7 +318,7 @@ trên trục chung, và đoạn nào chứa khung đó.
 
 ```bash
 craneops-ds doctor                     # kiểm môi trường
-craneops-ds record --cam <n> --duration 0          # ghi liên tục một camera
+craneops-ds record --cam <khoá> --duration 0      # ghi liên tục một camera
 nvidia-smi dmon -s pucm                     # NVENC phải = 0
 craneops-ds clean                  # xoá thư mục ghi cục bộ
 ```
@@ -311,7 +359,7 @@ URL lấy từ định dạng phân tách mà quên dừng ở dấu phân tách
 ### `mã camera trùng nhau: [...]`
 
 Hai camera cùng host **và** cùng cổng, hoặc URL thiếu cổng. Để nguyên thì dữ liệu của camera
-này bị gán cho camera kia mà không có gì báo. Xem §4.1.
+này bị gán cho camera kia mà không có gì báo. Xem §4.2.
 
 ### `[record] <cam>: bỏ buffer không có PTS`
 

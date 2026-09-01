@@ -16,7 +16,6 @@ camera giao tiếp bằng cách sửa biến class global dùng chung.
 | Code | Tên | Vai trò | Nhóm process | `kind` signal phát ra |
 |---|---|---|---|---|
 | `CCODE01` | Nhận dạng mã container | ccode | `ccode` | `container_no` |
-| `CCODE02` | Mã container ngược chiều | ccode | `ccode` | `container_no` (`direction=COUNTER`) |
 | `TCODE01` | Nhận dạng số đầu kéo | tcode | `tcode` | `truck_no` |
 | `CRANE01` | Gán lane từ đầu kéo | crane | `crane` | `lane_active` |
 | `CRANE02` | Xe vào vị trí ổn định | crane | `crane` | `truck_stable` |
@@ -33,7 +32,10 @@ Camera 10 nhìn xuống khu vực dưới cẩu. PicoDet cho bbox đầu kéo. L
 
 | Config | Mặc định | Ghi chú |
 |---|---|---|
-| `lane_zones` | — | `{"1": [[x,y],...], ...}` — mỗi lane một đa giác, toạ độ **tương đối `[0..1]`** |
+| `lane1_zone` … `lane3_zone` | — | mỗi làn **một** đa giác, toạ độ **tương đối `[0..1]`**; để trống = camera không thấy làn đó |
+
+> Config rule nằm ở `configs/rules/<CẨU>/<RULE>/config.json`, **khoá theo `camera_code`**,
+> KHÔNG nằm trong `configs/cranes/*.yaml`. Ranh giới ba tầng: xem `common/rule_config.py`.
 | `lane_anchor` | `CENTER` | Điểm mốc của bbox — tâm bbox đầu kéo |
 | `head_thresh` | 0,6 | ngưỡng tin cậy tối thiểu cho bbox đầu kéo |
 
@@ -133,7 +135,8 @@ quy ước gửi dashboard.
 
 Rule nặng nhất. Chuỗi xử lý (phần det+rec đã đẩy xuống Triton, dạng BLS — DN-007):
 
-1. **ROI tĩnh** từ config (`ocr_rois`) → `nvdspreprocess` crop và batch.
+1. **Vùng OCR tĩnh** từ config ds_app (`ocr_rois`) → `nvdspreprocess` crop và batch.
+   Vùng mang sẵn `lane` và `cont_dim` vì probe phải điền chúng vào `OcrResult`.
 2. **DB text detection** → lấy `top_k` vùng theo diện tích.
 3. **Cổng độ nét**: điểm FFT magnitude ≥ `sharpness_min` mới cho qua.
 4. **SVTR CTC recognition** → chuỗi + confidence.
@@ -156,29 +159,27 @@ Rule nặng nhất. Chuỗi xử lý (phần det+rec đã đẩy xuống Triton,
 | `box_threshold` | 0,2 | được phép của detector — xem DESIGN_NOTES DN-013 |
 | `character_threshold` | 0,3 | ký tự dưới ngưỡng bị loại trước khi bỏ lặp CTC |
 | `iso_threshold` | 0,95 | |
+| `ocr_threshold` | 0,95 | ngưỡng chấp nhận chuỗi đọc được — lọc **sau** khi đọc, không ở từng vùng |
 | `min_streak` | 3 | số khung liên tiếp cùng một mã mới phát signal |
 
 ⚠️ **Tri thức miền.** Bước 5–7 phải port gần nguyên văn và golden-test trước khi refactor.
 
 ---
 
-## `CCODE02` — Mã container ngược chiều
+## Chiều ngược — HOÃN
 
-Cùng chuỗi xử lý như `CCODE01` nhưng ngưỡng chặt hơn, và kích hoạt khi một lane có
-output mã container mà **không** phát hiện đầu kéo dưới cẩu.
+Nghiệp vụ có tình huống mã container xuất hiện ở một lane mà **không** phát hiện đầu kéo
+dưới cẩu (xe vào ngược chiều). v1 xử lý bằng một nhánh riêng với ngưỡng chặt hơn.
 
-| Config | `CCODE01` | `CCODE02` |
-|---|---|---|
-| `character_threshold` | 0,3 | **0,5** |
-| `score_threshold` | — | **0,95** |
-| `min_streak` | 3 | **5** |
-| `min_cont_count` | — | **3** |
+**Tạm hoãn, không nằm trong phạm vi hiện tại.** Ghi lại ở đây vì hai lý do:
 
-Phát signal với `direction = COUNTER`. **Đừng nhân đôi pipeline cho chiều này** — nó chỉ
-khác vài ngưỡng, nên nó là một rule khác *cấu hình*, không phải một nhánh code khác. Nhân
-đôi nghĩa là mọi sửa lỗi sau này phải nhớ sửa hai chỗ.
+* Nó **không phải** một nhánh code thứ hai — chỉ khác vài ngưỡng
+  (`character_threshold` 0,3 → 0,5; `min_streak` 3 → 5; thêm `score_threshold`,
+  `min_cont_count`). Khi làm, nó là một *cấu hình* khác của cùng chuỗi xử lý. Nhân đôi
+  pipeline nghĩa là mọi sửa lỗi sau này phải nhớ sửa hai chỗ.
+* `Direction` vẫn còn trong `common/message.py` và hiện **luôn** là `RIGHT`. Giữ lại vì
+  gỡ khỏi hợp đồng message rồi thêm lại là hai lần đổi schema cho cùng một thứ.
 
----
 
 ## `TCODE01` — Nhận dạng số đầu kéo
 
@@ -194,8 +195,9 @@ Camera 3 và 5. PicoDet phát hiện đầu kéo → FastViT **phân loại** s�
 | `head_code_thresh` | 0,93 | ngưỡng của classifier — cao hơn vì tập lớp đóng |
 | `min_streak` | 3 | số khung liên tiếp cùng một số xe mới phát signal |
 
-Gán lane dùng chung `LaneZones` như `CRANE01` — mỗi camera khai `lane_zones` riêng, không
-còn cờ đảo dấu theo hướng camera (xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-002).
+Gán lane dùng chung vùng làn như `CRANE01` — mỗi camera khai `lane1_zone`…`lane3_zone`
+riêng trong `configs/rules/<cẩu>/TCODE01/config.json`, không còn cờ đảo dấu theo hướng
+camera (xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-002).
 
 Bỏ phiếu đa số giữa camera 3 và 5 là việc của **combinator** `majority_vote` ở tầng
 điều phối, không phải của rule.
@@ -219,7 +221,9 @@ việc dựng ảnh (CLAHE + ghép 2×2) là của `evidenced`.
 ## Thêm một rule mới
 
 1. Tạo `internal/rules/<code>.py` với `@register_rule(...)` và `config_model`.
-2. Tạo `configs/rules/<CODE>/config.json` + `changelog.md`.
+2. Thêm `RuleSpec` vào `internal/rules/configs.py`, rồi `make rules` +
+   `python -m tools.rule_configs init <CẨU>` sinh `config.json`, `schema.json`,
+   `changelog.md` cho mọi cẩu. Khoá là `camera_code`.
 3. Chạy `make schema` để sinh `schema.json` từ `config_model`.
 4. Thêm code vào `rule_groups` trong `configs/default.yaml`.
 5. Viết test trong `tests/unit/rules/test_<code>.py`.

@@ -28,7 +28,7 @@ test: ## unit test + coverage
 	$(UV) run pytest tests/unit --cov --cov-report=term-missing
 
 .PHONY: check
-check: lint type test ## Tất cả kiểm tra chạy trên CI
+check: lint type test codes-check ## Tất cả kiểm tra chạy trên CI
 
 .PHONY: schema
 schema: ## Sinh lại ví dụ message trong docs/MESSAGE_CONTRACT.md
@@ -50,6 +50,18 @@ config: ## Sinh lại triton/repo/**/config.pbtxt từ SPECS
 .PHONY: config-check
 config-check: ## CI: fail nếu config.pbtxt trôi khỏi SPECS
 	$(UV) run python -m tools.export_models --check
+
+.PHONY: codes codes-check
+codes: ## Điền `code` vào configs/cranes/*.yaml rồi đối chiếu mọi service
+	uv run python -m tools.camera_codes
+codes-check: ## CI: mã camera trong config cẩu khớp mọi config rule
+	uv run python -m tools.camera_codes --check
+
+.PHONY: rules rules-check
+rules: ## Sinh lại schema.json của config rule từ pydantic model
+	uv run python -m tools.rule_configs schema
+rules-check: ## Config rule khớp model VÀ khớp cẩu (cần source build/.env.ds)
+	uv run python -m tools.rule_configs check
 
 
 # ---------------------------------------------------------------- vận hành
@@ -78,11 +90,11 @@ build-triton: ## → deploy/craneops-triton build
 
 # Mặc định của `make record`. CLI có mặc định riêng; hai chỗ này chỉ để `make record`
 # không truyền cờ rỗng.
-CAM ?= 1
+CAM ?= ccode1
 DUR ?= 60
 
 .PHONY: record record-clean
-record: ## → deploy/craneops-ds record (CAM=1 DUR=60 SEGMENT_SEC=10 META=1)
+record: ## → deploy/craneops-ds record (CAM=ccode1 DUR=60 SEGMENT_SEC=10 META=1)
 	@./deploy/craneops-ds record --cam $(CAM) --duration $(DUR) \
 	  $(if $(SEGMENT_SEC),--segment-sec $(SEGMENT_SEC),) $(if $(META),--meta,)
 record-clean: ## → deploy/craneops-ds clean

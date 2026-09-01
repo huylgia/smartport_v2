@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CCODE01 — config theo camera_code",
+  "description": "Sinh từ internal/rules/configs.py — đừng sửa tay. Khoá là camera_code (xem configs/cranes/*.yaml); mỗi camera một dòng.",
+  "type": "object",
+  "additionalProperties": {
+    "additionalProperties": false,
+    "description": "``CCODE01`` — nhận dạng mã container. Rule nặng nhất.",
+    "properties": {
+      "ocr_threshold": {
+        "default": 0.95,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Ocr Threshold",
+        "type": "number"
+      },
+      "top_k": {
+        "default": 5,
+        "minimum": 1,
+        "title": "Top K",
+        "type": "integer"
+      },
+      "sharpness_min": {
+        "default": 1000.0,
+        "minimum": 0.0,
+        "title": "Sharpness Min",
+        "type": "number"
+      },
+      "pair_distance_px": {
+        "default": 60.0,
+        "exclusiveMinimum": 0.0,
+        "title": "Pair Distance Px",
+        "type": "number"
+      },
+      "bitmap_threshold": {
+        "default": 0.1,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Bitmap Threshold",
+        "type": "number"
+      },
+      "box_threshold": {
+        "default": 0.2,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Box Threshold",
+        "type": "number"
+      },
+      "character_threshold": {
+        "default": 0.3,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Character Threshold",
+        "type": "number"
+      },
+      "iso_threshold": {
+        "default": 0.95,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Iso Threshold",
+        "type": "number"
+      },
+      "min_streak": {
+        "default": 3,
+        "minimum": 1,
+        "title": "Min Streak",
+        "type": "integer"
+      }
+    },
+    "title": "CCode01Config",
+    "type": "object"
+  }
+}

@@ -22,17 +22,13 @@ x-ds: &ds
     NVIDIA_DRIVER_CAPABILITIES: all
     PYTHONUNBUFFERED: "1"
     GST_DEBUG: ${GST_DEBUG:-1}
-    # URL camera — secret, nạp từ .env.ds
-    CAM01_RTSP: ${CAM01_RTSP:-}
-    CAM02_RTSP: ${CAM02_RTSP:-}
-    CAM03_RTSP: ${CAM03_RTSP:-}
-    CAM04_RTSP: ${CAM04_RTSP:-}
-    CAM05_RTSP: ${CAM05_RTSP:-}
-    CAM06_RTSP: ${CAM06_RTSP:-}
-    CAM07_RTSP: ${CAM07_RTSP:-}
-    CAM08_RTSP: ${CAM08_RTSP:-}
-    CAM09_RTSP: ${CAM09_RTSP:-}
-    CAM10_RTSP: ${CAM10_RTSP:-}
+  # URL camera nạp NGUYÊN FILE, không liệt kê từng biến.
+  #
+  # Bản trước khai tay `CAM01_RTSP … CAM10_RTSP`, tức chặn cứng ở 10 camera: thêm camera
+  # thứ 11 mà quên sửa file này thì URL tới nơi RỖNG, và lỗi hiện ra ở tận tầng GStreamer.
+  # `env_file` không có trần, và thêm camera không còn phải đụng tới compose.
+  env_file:
+    - .env.ds
   # Dùng CHUNG network với Triton, không tạo network riêng. Hai lý do:
   #   * ds_app sẽ gọi Triton qua gRPC ở Phase 3b — cùng network là chỗ nó cần ở.
   #   * Dải địa chỉ của Docker là tài nguyên hữu hạn trên máy dùng chung. Mỗi `compose run`

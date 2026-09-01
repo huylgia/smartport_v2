@@ -52,7 +52,9 @@ def build_sources(
     pad_of_camera: dict[int, str] = {}
     pad_index = 0
 
-    for index, camera in enumerate(crane.cameras):
+    # `record_cameras`, KHÔNG phải `crane.cameras`: cái sau là một ánh xạ, và duyệt nó
+    # cho ra KHOÁ chứ không phải camera — im lặng, tới tận lúc chạm thuộc tính đầu tiên.
+    for index, camera in enumerate(crane.record_cameras):
         bin_ = make_source_bin(Gst, index, camera)
         pipeline.add(bin_)
 
@@ -94,7 +96,7 @@ def build_sources(
 def make_source_bin(Gst: Any, index: int, camera: CameraConfig) -> Any:
     """Một ``nvurisrcbin`` bọc trong bin có đúng một ghost src pad."""
     bin_ = Gst.Bin.new(source_bin_name(index))
-    uri = camera.rtsp_model or camera.rtsp_record
+    uri = camera.rtsp_record
     src = make(Gst, "nvurisrcbin", f"uridecode_{index}")
     src.set_property("uri", uri)
     apply_props(src, NVURISRCBIN)

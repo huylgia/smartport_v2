@@ -72,16 +72,33 @@ def main() -> int:
         from common.config import load_crane
 
         crane = load_crane(REPO / "configs/cranes/GC03.yaml")
+        by_role = ", ".join(f"{r.value} {len(g)}" for r, g in crane.cameras.items())
         rows.append(
             (
                 True,
                 "config + URL camera",
-                f"{crane.crane_id}: {len(crane.cameras)} camera, "
-                f"{len(crane.model_cameras)} vào nhánh model",
+                f"{crane.crane_id}: {len(crane.record_cameras)} camera "
+                f"({by_role}), {len(crane.model_cameras)} chạy model",
             )
         )
+        cameras = crane.record_cameras
     except Exception as exc:
         rows.append((False, "config + URL camera", str(exc).split("\n")[0]))
+        cameras = []
+
+    # --- ánh xạ khoá → camera thật ----------------------------------------------
+    # `code` là chuỗi đi xuyên cả hệ: ds_app đặt lên PerceptionMessage, rule tra config
+    # theo nó, evidence đặt tên thư mục segment theo nó. Bảng này là cách rẻ nhất để đối
+    # chiếu mã với camera THẬT trước khi tin vào bất cứ kết quả nào.
+    if cameras:
+        print("\n=== camera ===")  # noqa: T201
+        for cam in cameras:
+            note = "" if cam.decodes else "  (chỉ ghi hình)"
+            # In `stream` cạnh `code` vì mã suy từ nó: sai cổng là sai mã, và sai mã thì
+            # rule không tìm thấy config của camera đó — im lặng.
+            print(  # noqa: T201
+                f"  {cam.key:<16}{cam.code:<26}{cam.stream:<40}{cam.desc}{note}"
+            )
 
     # --- thư mục ghi ------------------------------------------------------------
     rec = Path("/rec")

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TCODE01 — config theo camera_code",
+  "description": "Sinh từ internal/rules/configs.py — đừng sửa tay. Khoá là camera_code (xem configs/cranes/*.yaml); mỗi camera một dòng.",
+  "type": "object",
+  "additionalProperties": {
+    "additionalProperties": false,
+    "description": "``TCODE01`` — nhận dạng số đầu kéo (classifier tập đóng ~130 lớp).",
+    "properties": {
+      "lane1_zone": {
+        "items": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        "title": "Lane1 Zone",
+        "type": "array"
+      },
+      "lane2_zone": {
+        "items": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        "title": "Lane2 Zone",
+        "type": "array"
+      },
+      "lane3_zone": {
+        "items": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        "title": "Lane3 Zone",
+        "type": "array"
+      },
+      "lane_anchor": {
+        "default": 1,
+        "examples": [
+          "CENTER",
+          "BOTTOM",
+          "CENTER|BOTTOM"
+        ],
+        "type": "string"
+      },
+      "head_thresh": {
+        "default": 0.8,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Head Thresh",
+        "type": "number"
+      },
+      "head_code_thresh": {
+        "default": 0.93,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "title": "Head Code Thresh",
+        "type": "number"
+      },
+      "min_streak": {
+        "default": 3,
+        "minimum": 1,
+        "title": "Min Streak",
+        "type": "integer"
+      }
+    },
+    "title": "TCode01Config",
+    "type": "object"
+  }
+}
