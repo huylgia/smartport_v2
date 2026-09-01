@@ -325,7 +325,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-08-29 | dev | Giải mã 6 model `.t7` | OK, `onnx.checker` pass hết | script kiểm chứng |
 | ☐ | **đích** | **8 luồng main decode có đạt real-time?** | **việc đầu tiên của Spike A** | `nvidia-smi dmon -s u`, dec < 80 % |
 | ☐ | đích | Trần phiên NVENC | | Spike A |
-| ☐ | đích | 10 RTSP ghi passthrough, NVENC session | (phải = 0) | Spike A |
+| ☐ | **đích** | 10 RTSP ghi passthrough, NVENC session | dev đã đo **0 %** (§6.3); còn phải xác nhận trên 3060 | Spike A |
 | 2026-08-30 | dev | **VRAM Triton, 9 model** | **4 146 MiB** (4 model ccode ở FP32) | §6.1 |
 | 2026-08-30 | dev | **Đường ống ccode — trần** | **1 137 req/s** (628 lúc đầu, +81 %) | §6.1 |
 | 2026-08-30 | dev | **Đường ống ccode — tải thật 100 req/s** | **p50 3,8 ms · p95 5,3 ms** | §6.1 |
@@ -333,6 +333,12 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-08-30 | dev | Detector DB (nút thắt) | **684 mẫu/s** (h) · **1 364** (v) | §6.1 |
 | 2026-08-30 | dev | TRT **FP16** trên det lẫn rec | **làm sai kết quả** ⇒ cả 4 model ccode dùng FP32 | DN-008, DN-013 |
 | 2026-08-30 | dev | **Độ chính xác từng model so với nhãn** | cls 100 % · pico 98,7/97,8 % recall | §6.2 |
+| 2026-09-01 | dev | **Ghi hình 10 camera — NVENC** | **0 %** | §6.3 |
+| 2026-09-01 | dev | **Ghi hình 10 camera — NVDEC** | **0 %** (src pad không nối) | §6.3 |
+| 2026-09-01 | dev | Ghi hình 10 camera — CPU container | **6,5 %** của 6 CPU (đỉnh 8,2 %) | §6.3 |
+| 2026-09-01 | dev | Ghi hình 10 camera — RAM container | **313 MiB** / 6 GiB, 131 luồng | §6.3 |
+| 2026-09-01 | dev | Ghi hình 10 camera — đĩa | **10,4 GB/giờ** cả cẩu | §6.3 |
+| 2026-09-01 | dev | ⚠️ Nối `fakesink` vào src pad | NVDEC **0 % → 11,6 %** (decode 10 luồng để vứt) | §6.3 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -501,3 +507,46 @@ uv run --with "tritonclient[grpc]" python -m tools.bench.triton_bench --pipeline
 craneops-triton accuracy
 
 ```
+
+---
+
+### 6.3 Ghi hình 10 camera (2026-09-01, máy dev)
+
+`craneops-ds record --cam all --duration 90 --segment-sec 10`, GC03, 10 camera
+2688×1520@30 HEVC.
+
+| Hạng mục | Số đo |
+|---|---|
+| Đoạn ghi | 90 đoạn / 90 s, **0 lỗi**, 10/10 camera đều ra file |
+| Độ dài đoạn thật | **10,00 s** ở 9/10 camera (học từ hai mốc mở liên tiếp) |
+| NVENC | **0 %** |
+| NVDEC | **0 %** |
+| SM | **0 %** |
+| CPU container | **6,5 %** của 6 CPU (đỉnh 8,2 %) |
+| RAM container | **313 MiB** / 6 GiB · 131 luồng |
+| Đĩa | **10,4 GB/giờ** cả cẩu · 0,31–1,44 GB/giờ mỗi camera |
+
+GPU **hoàn toàn không đụng tới**. Đó là điều kiện sống còn trên máy đích: cả ngân sách
+NVDEC ở §2.2 giả định nhánh ghi không tốn gì, và giờ nó được đo chứ không còn là suy đoán.
+
+Đĩa: 10,4 GB/giờ đo được, so với **9,6 GB/giờ** suy từ bitstream nguồn (§2.6) — lệch 8 %
+do phần bao mp4. Giữ 30 phút ⇒ ~5,2 GB, nằm gọn trong yêu cầu 50 GB.
+
+#### ⚠️ Đừng nối gì vào src pad của nguồn
+
+`nvurisrcbin` có decoder bên trong. Nhánh ghi tách **trước** nó, nên khi src pad không nối,
+luồng sau decode dừng ngay ở buffer đầu (`NOT_LINKED`) và decoder không chạy.
+
+Đo được hai chiều, cùng một bản ghi 10 camera:
+
+| src pad | NVDEC | ghi hình |
+|---|---|---|
+| **không nối** | **0,0 %** | ✅ 90 đoạn, 0 lỗi |
+| nối `fakesink` | **11,6 %** (đỉnh 24 %) | ✅ 120 đoạn, 0 lỗi |
+
+Cả hai đều ghi hình đúng, nên **không có gì báo** khi làm sai. Bản đầu của
+`record --cam all` nối một `fakesink` vào mỗi nguồn cho "gọn", và nó decode cả 10 luồng để
+vứt đi: 11,6 % NVDEC trên RTX 5090. Trên RTX 3060 một NVDEC gen 5 thì phần đó cộng thẳng
+vào 981 Mpixel/s của nhánh model (§2.2) và đẩy tổng lên mức đã tính là **vượt trần**.
+
+Kiểm bằng `nvidia-smi dmon -s u` khi đang ghi: cột `dec` phải bằng 0.

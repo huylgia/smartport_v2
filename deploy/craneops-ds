@@ -76,7 +76,7 @@ cmd_record() {
       --segment-sec) seg="$2"; shift 2 ;;    # độ dài MỖI ĐOẠN, khác --duration
       --meta) meta=1; shift ;;
       -h|--help)
-        printf 'craneops-ds record [--cam KHOÁ] [--duration GIÂY] [--segment-sec GIÂY] [--meta]\n\n'
+        printf 'craneops-ds record [--cam KHOÁ|all] [--duration GIÂY] [--segment-sec GIÂY] [--meta]\n\n'
         printf '  --cam          khoá camera: vai trò + số thứ tự (ccode1, tcode2). `doctor` liệt kê\n'
         printf '  --duration     thời gian CHẠY; 0 = chạy mãi (Ctrl-C để dừng)\n'
         printf '  --segment-sec  độ dài MỖI ĐOẠN; đây là độ trễ tệ nhất của bằng chứng\n'

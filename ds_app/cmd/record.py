@@ -45,7 +45,11 @@ from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync  # noqa: E402
 def _args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=str(REPO / "configs/cranes/GC03.yaml"))
-    ap.add_argument("--cam", required=True, help="khoá camera trong config (vd: ccode_front_right)")
+    ap.add_argument(
+        "--cam",
+        required=True,
+        help="khoá camera (vd: ccode1), hoặc `all` để ghi MỌI camera — hình dạng production",
+    )
     ap.add_argument("--out", default="/var/lib/craneops/rec")
     ap.add_argument("--duration", type=int, default=60, help="giây; 0 = chạy mãi")
     ap.add_argument("--segment-sec", type=float, default=10.0, help="độ dài đoạn, giây")
@@ -119,18 +123,26 @@ def main() -> int:
     from gi.repository import GLib, Gst
 
     crane = load_crane(args.config)
-    try:
-        camera = crane.camera(args.cam)
-    except KeyError as exc:
-        # KeyError của config đã liệt kê khoá hợp lệ; in trần thì nó dính thêm dấu nháy.
-        print(str(exc).strip('"'), file=sys.stderr)  # noqa: T201
-        raise SystemExit(2) from None
+    if args.cam == "all":
+        cameras = crane.record_cameras
+    else:
+        try:
+            cameras = [crane.camera(args.cam)]
+        except KeyError as exc:
+            # KeyError của config đã liệt kê khoá hợp lệ; in trần thì dính thêm dấu nháy.
+            print(str(exc).strip('"'), file=sys.stderr)  # noqa: T201
+            raise SystemExit(2) from None
+
+    if args.show_meta and len(cameras) > 1:
+        raise SystemExit("--show-meta chỉ dùng với MỘT camera (nó dựng nvstreammux riêng)")
+
     print(  # noqa: T201
-        f"cẩu {crane.crane_id} · camera {camera.key} · vai trò {camera.role}\n"
-        f"  mã       {camera.code}\n"
-        f"  mô tả    {camera.desc or '(không có)'}\n"
-        f"  decode   {'có' if camera.decodes else 'KHÔNG (chỉ ghi hình)'}\n"
-        f"  ghi vào  {args.out}/{camera.code}/   (đoạn ~{args.segment_sec:g}s)",
+        f"cẩu {crane.crane_id} · {len(cameras)} camera · đoạn ~{args.segment_sec:g}s\n"
+        + "\n".join(
+            f"  {c.key:<16}{c.code:<26}{c.desc or '(không có)'}"
+            + ("" if c.decodes else "   (chỉ ghi hình)")
+            for c in cameras
+        ),
         flush=True,
     )
 
@@ -152,16 +164,22 @@ def main() -> int:
         fragments=index,
         on_fragment=_on_fragment,
     )
-    src_bin = make_source_bin(Gst, 0, camera)
-    pipeline.add(src_bin)
-    recorder.attach(Gst, src_bin, camera.code)
-
-    sink = Gst.ElementFactory.make("fakesink", "sink")
-    sink.set_property("sync", False)
-    pipeline.add(sink)
+    # Mỗi camera một nguồn + một nhánh ghi. KHÔNG dùng nvstreammux: ghi hình tách ở tầng
+    # bitstream trước decode (DN-014), nên nhánh này không cần decode lẫn gộp batch — đó
+    # chính là lý do 10 camera ghi cùng lúc vẫn 0 NVENC và 0 NVDEC.
+    src_bins = []
+    for i, cam in enumerate(cameras):
+        b = make_source_bin(Gst, i, cam)
+        pipeline.add(b)
+        recorder.attach(Gst, b, cam.code)
+        src_bins.append(b)
 
     if args.show_meta:
         # nvstreammux là thứ tạo ra NvDsBatchMeta; không có nó thì không có metadata nào.
+        # Chế độ này CÓ decode — nó tồn tại để xem metadata, không phải để đo ghi hình.
+        sink = Gst.ElementFactory.make("fakesink", "sink")
+        sink.set_property("sync", False)
+        pipeline.add(sink)
         mux = Gst.ElementFactory.make("nvstreammux", "mux")
         mux.set_property("batch-size", 1)
         mux.set_property("width", 1280)
@@ -169,13 +187,19 @@ def main() -> int:
         mux.set_property("batched-push-timeout", 40000)
         mux.set_property("live-source", 1)
         pipeline.add(mux)
-        src_bin.get_static_pad("src").link(mux.request_pad_simple("sink_0"))
+        src_bins[0].get_static_pad("src").link(mux.request_pad_simple("sink_0"))
         mux.link(sink)
         mux.get_static_pad("src").add_probe(
-            Gst.PadProbeType.BUFFER, _frame_meta_probe(camera, sync, index), None
+            Gst.PadProbeType.BUFFER, _frame_meta_probe(cameras[0], sync, index), None
         )
-    else:
-        src_bin.get_static_pad("src").link(sink.get_static_pad("sink"))
+    # KHÔNG nối gì vào src pad của nguồn. Đó là cách chế độ ghi hình đạt 0 % NVDEC:
+    # nvurisrcbin có decoder bên trong, nhưng pad không nối thì luồng của nó dừng ngay ở
+    # buffer đầu (NOT_LINKED) và decoder không chạy. Nhánh ghi tách TRƯỚC decode nên không
+    # bị ảnh hưởng.
+    #
+    # ⚠️ Đo được, không phải suy đoán: nối một `fakesink` vào cho "gọn" làm NVDEC nhảy từ
+    # 0 % lên 11,6 % với 10 camera trên RTX 5090 — tức decode cả 10 luồng để vứt đi. Trên
+    # RTX 3060 một NVDEC thì đó là chí mạng. Xem HARDWARE_BUDGET §6.3.
 
     errors: list[str] = []
     bus = pipeline.get_bus()
@@ -202,21 +226,34 @@ def main() -> int:
     pipeline.set_state(Gst.State.NULL)
     time.sleep(1)
 
-    files = sorted(Path(args.out, camera.code).glob("*.mp4"))
-    total = sum(f.stat().st_size for f in files)
     elapsed = time.time() - started
+    per_cam = {c.code: sorted(Path(args.out, c.code).glob("*.mp4")) for c in cameras}
+    total = sum(f.stat().st_size for fs in per_cam.values() for f in fs)
+    silent = [code for code, fs in per_cam.items() if not fs]
+
     print(  # noqa: T201
-        f"\n=== {elapsed:.0f}s ===\n"
+        f"\n=== {elapsed:.0f}s · {len(cameras)} camera ===\n"
         f"  đoạn mở      {len(opened)}\n"
-        f"  còn trên đĩa {len(files)}  ({total / 1e6:.1f} MB"
-        f" ⇒ {total / 1e6 / max(elapsed, 1) * 3600 / 1000:.1f} GB/giờ)\n"
-        f"  độ dài đoạn thật (học được)  {index.observed_duration(camera.code):.2f}s\n"
+        f"  còn trên đĩa {sum(len(f) for f in per_cam.values())}  ({total / 1e6:.1f} MB"
+        f" ⇒ {total / 1e6 / max(elapsed, 1) * 3600 / 1000:.2f} GB/giờ cho cả cẩu)\n"
         f"  lỗi          {len(errors)}",
         flush=True,
     )
-    for f in files[:10]:
-        print(f"    {f.name}  {f.stat().st_size:>9,} byte")  # noqa: T201
-    return 1 if errors else 0
+    for c in cameras:
+        fs = per_cam[c.code]
+        size = sum(f.stat().st_size for f in fs)
+        # Độ dài đoạn THẬT phải học từ hai mốc mở liên tiếp, không lấy từ config:
+        # splitmuxsink chỉ cắt tại keyframe nên nó là bội số của GOP.
+        print(  # noqa: T201
+            f"    {c.key:<16}{len(fs):>3} đoạn  {size / 1e6:>7.1f} MB"
+            f"  {size / 1e6 / max(elapsed, 1) * 3600 / 1000:>5.2f} GB/giờ"
+            f"  đoạn thật {index.observed_duration(c.code):.2f}s"
+        )
+    if silent:
+        # Một camera không ra file nào giữa lúc các camera khác vẫn ghi là hỏng RIÊNG nó —
+        # loại lỗi mà tổng dung lượng che mất.
+        print(f"  ⚠️  {len(silent)} camera KHÔNG ghi được đoạn nào: {silent}")  # noqa: T201
+    return 1 if errors or silent else 0
 
 
 if __name__ == "__main__":

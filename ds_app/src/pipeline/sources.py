@@ -63,7 +63,12 @@ def build_sources(
 
         if not camera.decodes:
             # Không nối vào muxer: camera này chỉ ghi hình. Nhánh decode bên trong
-            # nvurisrcbin vẫn tồn tại nhưng không ai kéo, nên nó không tốn NVDEC.
+            # nvurisrcbin vẫn tồn tại nhưng không ai kéo, nên nó dừng ngay ở buffer đầu
+            # (NOT_LINKED) và KHÔNG tốn NVDEC.
+            #
+            # Đã đo, không còn là suy đoán: 10 camera ghi hình với src pad không nối cho
+            # NVDEC 0 %; nối một `fakesink` vào cho "gọn" đẩy lên 11,6 %. Cả hai đều ghi
+            # hình đúng nên không có gì báo khi làm sai. Xem HARDWARE_BUDGET §6.3.
             continue
 
         sink_pad = streammux.request_pad_simple(f"sink_{pad_index}")

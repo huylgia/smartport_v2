@@ -232,7 +232,8 @@ lỗi) nhưng cách sửa hoàn toàn khác.
 ### 5.2 Ghi hình
 
 ```bash
-craneops-ds record --cam ccode1 --duration 60               # chạy 60 giây rồi dừng
+craneops-ds record --cam all --duration 60                  # MỌI camera — hình dạng production
+craneops-ds record --cam ccode1 --duration 60               # một camera
 craneops-ds record --cam tcode2 --duration 0                 # chạy mãi, Ctrl-C để dừng
 craneops-ds record --cam ccode1 --duration 0 --segment-sec 60   # đoạn 60 giây thay vì 10
 ```
@@ -285,7 +286,9 @@ giới hạn số phiên encode. Nhánh ghi cắm vào luồng **chưa decode** 
 Kiểm trong lúc đang ghi:
 
 ```bash
-nvidia-smi dmon -s pucm      # cột enc PHẢI là 0; dec ~1-2 % cho một camera
+nvidia-smi dmon -s pucm      # cột enc VÀ dec đều PHẢI là 0 — kể cả với 10 camera
+                             # dec > 0 nghĩa là có gì đó nối vào src pad của nguồn;
+                             # xem HARDWARE_BUDGET §6.3
 ```
 
 ### 5.3 Xem metadata DeepStream trả về
