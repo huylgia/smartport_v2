@@ -62,4 +62,9 @@ tests/golden/data/**/*.h265
 
 # Segment video ghi ra — không bao giờ commit (vài MB mỗi 10 giây)
 rec/
+.rec/
 *.mp4
+# Đoạn ĐANG ghi mang đuôi `.mp4.part` (xem ds_app/src/pipeline/recorder.py). `*.mp4` không
+# khớp nó, nên phải khai riêng — nếu không, một lần `git add -A` giữa lúc đang ghi hình sẽ
+# kéo cả video vào repo.
+*.mp4.part

@@ -92,8 +92,20 @@ class Fragment:
     """
 
     path: str
+    """Đường dẫn **cuối cùng**. Có thể chưa tồn tại nếu đoạn còn đang ghi — xem
+    :attr:`live_path`."""
+
     start_unix: float
     end_unix: float
+
+    @property
+    def live_path(self) -> str:
+        """Nơi đọc khi đoạn **chưa chốt**: cùng tên nhưng có đuôi ``.part``.
+
+        Đoạn đang ghi vẫn đọc được (``reserved-moov-update-period`` làm mới ``moov`` mỗi
+        giây) và ``evidenced`` thường cần chính nó — cửa sổ bằng chứng hay chạm vào đoạn
+        hiện tại. Nên đừng chờ đoạn đóng: thử :attr:`path`, không có thì đọc cái này."""
+        return self.path + ".part"
 
 
 _GUARD_SEC = 1.0

@@ -193,7 +193,35 @@ config sẽ **im lặng** không xử lý camera ấy.
 [HARDWARE_BUDGET.md](HARDWARE_BUDGET.md) §2.2 — vượt trần thì **mọi** camera cùng tụt fps,
 không phải camera mới bị bỏ. Camera chỉ để ghi hình thì đặt vai trò `evidence_only`.
 
-### 4.2 Kiểm nhánh ghi có mất dữ liệu không
+### 4.2 Đoạn hoàn tất và đoạn đang ghi
+
+Đoạn **đang ghi** mang đuôi `.mp4.part`; khi `splitmuxsink` báo đóng xong, nó được đổi tên
+thành `.mp4`. Đổi tên trong cùng thư mục là thao tác **nguyên tử**, nên ai duyệt `*.mp4`
+không bao giờ thấy một file dở dang.
+
+```
+1788278470.mp4          ✅ hoàn tất
+1788278477.mp4          ✅ hoàn tất
+1788278490.mp4.part     ⏳ đang ghi, hoặc mồ côi sau khi tiến trình chết
+```
+
+⚠️ **`.part` KHÔNG có nghĩa là không đọc được.** `reserved-moov-update-period-sec: 1` làm
+mới `moov` mỗi giây nên đoạn đang ghi vẫn mở được — và `evidenced` thường cần chính nó, vì
+cửa sổ bằng chứng hay chạm vào đoạn hiện tại. Đuôi này nói **"chưa chốt"**, không nói
+"hỏng". Dùng `Fragment.live_path` để đọc đoạn chưa chốt.
+
+⚠️ **Phải chờ message `splitmuxsink-fragment-closed`, đừng đổi tên lúc đoạn kế mở ra.**
+`async-finalize` đóng file ở luồng khác; đo được trên bus là `fragment-closed` của đoạn N
+tới **sau** `fragment-opened` của đoạn N+1.
+
+Đo bằng `kill -9` giữa đoạn: ba đoạn trước hoàn tất và đọc được đủ 200 khung, đoạn đang mở
+còn `.part` với 31 khung — mất **~3 giây** cuối, đúng bằng khoảng tới lần làm mới `moov`
+gần nhất. Không có `reserved-moov-update-period` thì mất **trọn cả đoạn**.
+
+Sweeper duyệt `*.mp4*` nên dọn được cả `.part` mồ côi — nó luôn là file to nhất trong thư
+mục vì chưa bị cắt.
+
+### 4.3 Kiểm nhánh ghi có mất dữ liệu không
 
 `record` báo ở cuối mỗi lần chạy và **thoát khác 0** nếu có mất:
 
@@ -237,7 +265,7 @@ print("overrun:", n[0])'
 Nguồn nhanh (60 fps) → hàng đợi 2 buffer → sink cố ý ngủ 50 ms mỗi buffer. Đo được
 **225 lần overrun trong 5 giây** — tín hiệu nối đúng.
 
-### 4.3 Mã camera suy từ URL, không khai
+### 4.4 Mã camera suy từ URL, không khai
 
 Định danh là `<mã cẩu>_<ip>_<cổng>`, ví dụ `GC03_113_160_225_15_1508`. Nó là tên thư mục
 ghi hình và là trường `camera_code` trong message, nên hai thứ đó không thể trôi khỏi nhau.
@@ -406,7 +434,7 @@ URL lấy từ định dạng phân tách mà quên dừng ở dấu phân tách
 ### `mã camera trùng nhau: [...]`
 
 Hai camera cùng host **và** cùng cổng, hoặc URL thiếu cổng. Để nguyên thì dữ liệu của camera
-này bị gán cho camera kia mà không có gì báo. Xem §4.3.
+này bị gán cho camera kia mà không có gì báo. Xem §4.4.
 
 ### `[record] <cam>: bỏ buffer không có PTS`
 

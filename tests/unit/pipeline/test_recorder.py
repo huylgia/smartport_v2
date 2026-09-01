@@ -195,9 +195,10 @@ def test_fragment_path_is_reported_to_the_caller(gst: Any, tmp_path: Path) -> No
     callback = sink.signals["format-location-full"][0][0]
     path = callback(sink, 0, None, "1")
 
-    assert path.endswith(".mp4")
+    assert path.endswith(".mp4.part"), "đoạn ĐANG ghi mang đuôi .part"
     assert str(tmp_path / "1") in path, "mỗi camera một thư mục con"
-    assert len(seen) == 1 and seen[0][1] == path
+    # Callback nhận đường dẫn CUỐI, không phải `.part`: nơi tiêu thụ tra theo tên ổn định.
+    assert len(seen) == 1 and seen[0][1] == path.removesuffix(".part")
 
 
 def test_output_directory_is_created_per_camera(gst: Any, tmp_path: Path) -> None:
@@ -299,8 +300,8 @@ def test_fragment_filename_is_an_integer_epoch(gst: Any, tmp_path: Path) -> None
     callback, sink = _fragment_callback(bin_, "cam")
     path = callback(sink, 0, _Sample(pts=142 * gst.SECOND), "cam")
 
-    assert Path(path).name == "1700000042.mp4", "nguyên giây, không phần thập phân"
-    assert Path(path).stem.isdigit()
+    assert Path(path).name == "1700000042.mp4.part", "nguyên giây, không phần thập phân"
+    assert Path(path).name.removesuffix(".mp4.part").isdigit()
 
 
 def test_exact_fragment_time_keeps_its_precision(gst: Any, tmp_path: Path) -> None:
@@ -321,7 +322,7 @@ def test_exact_fragment_time_keeps_its_precision(gst: Any, tmp_path: Path) -> No
     path = callback(sink, 0, _Sample(pts=int(2.75 * gst.SECOND)), "cam")
 
     assert seen == [1_700_000_002.5], "mốc chính xác giữ nguyên phần thập phân"
-    assert Path(path).name == "1700000002.mp4"
+    assert Path(path).name == "1700000002.mp4.part"
 
 
 # ---------------------------------------------------------------- độ dài đoạn
@@ -431,3 +432,103 @@ def test_keyframe_gap_is_silent_before_the_gop_is_known(gst: Any, tmp_path: Path
     branch, _ = _attach(gst, tmp_path)
     branch._check_keyframe_gap("1", 99.0)
     assert branch.loss.clean
+
+
+# ---------------------------------------------------------------- chốt đoạn
+
+
+class _ClosedMessage:
+    """Message ``splitmuxsink-fragment-closed`` trên bus."""
+
+    def __init__(self, location: str | None, name: str = "splitmuxsink-fragment-closed") -> None:
+        self._name, self._loc = name, location
+
+    def get_structure(self) -> Any:
+        outer = self
+
+        class _S:
+            def get_name(self) -> str:
+                return outer._name
+
+            def get_string(self, key: str) -> str | None:
+                return outer._loc if key == "location" else None
+
+        return _S()
+
+
+def test_fragment_is_renamed_only_when_splitmuxsink_says_it_closed(
+    gst: Any, tmp_path: Path
+) -> None:
+    """``.part`` → ``.mp4`` là thao tác nguyên tử, và chỉ xảy ra khi file đã ghi xong.
+
+    ⚠️ KHÔNG đổi tên lúc đoạn kế mở ra: ``async-finalize`` đóng file ở luồng khác, nên
+    "đoạn sau đã mở" không có nghĩa "đoạn trước đã ghi xong". Đo được trên bus:
+    ``fragment-closed`` của đoạn N tới **sau** ``fragment-opened`` của đoạn N+1.
+    """
+    branch, bin_ = _attach(gst, tmp_path)
+    callback, sink = _fragment_callback(bin_)
+    part = callback(sink, 0, None, "1")
+    Path(part).write_bytes(b"x")
+
+    final = Path(part.removesuffix(".part"))
+    assert not final.exists(), "chưa đóng thì chưa có .mp4"
+
+    assert branch.handle_bus_message(_ClosedMessage(part)) is True
+    assert final.exists() and not Path(part).exists()
+
+
+def test_unrelated_bus_messages_are_ignored(gst: Any, tmp_path: Path) -> None:
+    branch, _ = _attach(gst, tmp_path)
+    assert (
+        branch.handle_bus_message(_ClosedMessage("/x", name="splitmuxsink-fragment-opened"))
+        is False
+    )
+
+
+def test_a_close_for_an_unknown_file_is_harmless(gst: Any, tmp_path: Path) -> None:
+    """Message tới sau khi ta đã quên đoạn đó (restart, hoặc camera khác) — đừng ném."""
+    branch, _ = _attach(gst, tmp_path)
+    assert branch.handle_bus_message(_ClosedMessage(str(tmp_path / "la.mp4.part"))) is True
+    assert branch.loss.clean
+
+
+def test_a_failed_rename_is_reported_not_raised(gst: Any, tmp_path: Path) -> None:
+    """Không đổi tên được thì dữ liệu vẫn còn dưới `.part`; làm đứng pipeline vì nó là mất
+    nhiều hơn được. Nhưng phải BÁO — im lặng thì không ai biết file nằm ở tên khác."""
+    branch, bin_ = _attach(gst, tmp_path)
+    callback, sink = _fragment_callback(bin_)
+    part = callback(sink, 0, None, "1")  # không tạo file ⇒ rename ném OSError
+
+    assert branch.handle_bus_message(_ClosedMessage(part)) is True
+    assert branch.loss.rename_failures
+    assert branch.loss.clean is False
+
+
+def test_live_path_points_at_the_part_file() -> None:
+    """Đoạn chưa chốt vẫn đọc được — `evidenced` thường cần chính đoạn hiện tại."""
+    from ds_app.src.pipeline.timesync import Fragment
+
+    frag = Fragment(path="/rec/CAM/123.mp4", start_unix=1.0, end_unix=2.0)
+    assert frag.live_path == "/rec/CAM/123.mp4.part"
+
+
+def test_sweeper_sees_part_files(tmp_path: Path) -> None:
+    """`.part` mồ côi (tiến trình chết giữa chừng) cũng chiếm đĩa và phải dọn được.
+
+    Nó luôn là file TO nhất trong thư mục vì chưa bị cắt — bỏ sót thì ngân sách đĩa sai.
+    """
+    import time
+
+    from ds_app.src.pipeline.sweeper import SweepPolicy, sweep
+
+    d = tmp_path / "CAM"
+    d.mkdir()
+    old = d / "1.mp4.part"
+    old.write_bytes(b"x" * 1000)
+    (d / "2.mp4").write_bytes(b"y" * 10)
+    import os
+
+    os.utime(old, (time.time() - 9999, time.time() - 9999))
+
+    result = sweep(tmp_path, SweepPolicy(max_age_sec=60, min_age_sec=1))
+    assert old.name in {p.name for p in result.deleted}

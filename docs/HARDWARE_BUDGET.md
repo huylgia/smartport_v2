@@ -354,6 +354,8 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | `model_fps: 5` có thực thi không? | **có** — 5,0 fps vào probe, so với 27,5 fps khi không đặt | đếm `frame_num` |
 | 2026-09-01 | dev | Tín hiệu `overrun` có nối đúng? | **có** — 225 lần/5 s khi sink cố ý chậm | RUNBOOK_DS_APP §4.2 |
 | 2026-09-01 | dev | Ghi hình 10 camera — mất dữ liệu | **0** overrun, **0** nghi mất khung I | `record --cam all` |
+| 2026-09-01 | dev | `kill -9` giữa đoạn — mất bao nhiêu? | **~3 s** cuối; đoạn đang mở vẫn ĐỌC ĐƯỢC | `reserved-moov-update-period-sec: 1` |
+| 2026-09-01 | dev | Đoạn dở dang có phân biệt được? | **có** — đuôi `.mp4.part`, đổi tên nguyên tử khi đóng | `splitmuxsink-fragment-closed` |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---

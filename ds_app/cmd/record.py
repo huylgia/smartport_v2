@@ -205,6 +205,9 @@ def main() -> int:
     bus = pipeline.get_bus()
     bus.add_signal_watch()
     bus.connect("message::error", lambda _b, m: errors.append(m.parse_error()[0].message))
+    # `splitmuxsink` báo đóng xong đoạn qua message trên bus, không qua signal — đó là tín
+    # hiệu duy nhất đáng tin khi `async-finalize` bật.
+    bus.connect("message::element", lambda _b, m: recorder.handle_bus_message(m))
 
     if args.retain_sec > 0:
         schedule(
@@ -227,7 +230,10 @@ def main() -> int:
     time.sleep(1)
 
     elapsed = time.time() - started
+    # Chỉ đếm `*.mp4`: đoạn còn đuôi `.part` là chưa chốt. Đoạn cuối luôn còn `.part` vì
+    # pipeline dừng trước khi splitmuxsink kịp đóng nó — đó là bình thường, không phải lỗi.
     per_cam = {c.code: sorted(Path(args.out, c.code).glob("*.mp4")) for c in cameras}
+    unfinished = {c.code: sorted(Path(args.out, c.code).glob("*.mp4.part")) for c in cameras}
     total = sum(f.stat().st_size for fs in per_cam.values() for f in fs)
     silent = [code for code, fs in per_cam.items() if not fs]
 
@@ -256,6 +262,10 @@ def main() -> int:
 
     # Mất dữ liệu ở nhánh ghi KHÔNG tự lộ ra: file vẫn được tạo, vẫn mở được, chỉ thiếu
     # hình ở giữa. Báo ra đây và thoát khác 0 để nó không đi qua im lặng.
+    n_part = sum(len(v) for v in unfinished.values())
+    if n_part:
+        print(f"  chưa chốt    {n_part} đoạn còn đuôi .part (đoạn cuối mỗi camera)")  # noqa: T201
+
     loss = recorder.loss
     if loss.clean:
         print("  ✅ không mất dữ liệu (0 lần hàng đợi đầy, 0 nghi mất khung I)")  # noqa: T201

@@ -102,7 +102,8 @@ def sweep(
     """Quét một lượt trên cây thư mục ghi hình.
 
     Args:
-        root: Thư mục gốc; cấu trúc ``<root>/<mã camera>/*.mp4``.
+        root: Thư mục gốc; cấu trúc ``<root>/<mã camera>/*.mp4`` (và ``*.mp4.part`` cho
+            đoạn chưa chốt).
         policy: Ngưỡng; mặc định :class:`SweepPolicy`.
         now: Thời điểm coi là "bây giờ", epoch giây. Truyền vào để test.
         keep_newest_per_dir: Giữ lại file mới nhất của mỗi camera. Đó là đoạn **đang được
@@ -123,7 +124,13 @@ def sweep(
     in_progress: set[Path] = set()
     for camera_dir in sorted(p for p in base.iterdir() if p.is_dir()):
         newest: tuple[float, Path] | None = None
-        for f in camera_dir.glob("*.mp4"):
+        # `*.mp4*` để bắt CẢ `.mp4.part`. Đoạn dở dang cũng chiếm đĩa, và một `.part` mồ
+        # côi để lại sau khi tiến trình chết sẽ nằm đó mãi nếu không quét tới — mà nó luôn
+        # là đoạn to nhất trong thư mục (chưa bị cắt).
+        #
+        # Đoạn ĐANG ghi cũng mang đuôi `.part`; nó được `keep_newest_per_dir` và `min_age`
+        # bảo vệ, nên không cần phân biệt riêng.
+        for f in camera_dir.glob("*.mp4*"):
             try:
                 st = f.stat()
             except OSError:

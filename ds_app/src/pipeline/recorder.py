@@ -50,14 +50,18 @@ class RecordLoss:
 
     overruns: dict[str, int] = dataclasses.field(default_factory=dict)
     keyframe_gaps: dict[str, int] = dataclasses.field(default_factory=dict)
+    rename_failures: dict[str, str] = dataclasses.field(default_factory=dict)
+    """Đoạn đã ghi xong nhưng không đổi tên được — dữ liệu còn, tên còn `.part`."""
 
     @property
     def clean(self) -> bool:
-        return not self.overruns and not self.keyframe_gaps
+        return not self.overruns and not self.keyframe_gaps and not self.rename_failures
 
     def report(self) -> list[str]:
         """Dòng báo cho từng camera có vấn đề. Rỗng = không mất gì."""
         out = []
+        for name, why in sorted(self.rename_failures.items()):
+            out.append(f"{name}: không đổi tên được khỏi `.part` — {why}")
         for code in sorted(set(self.overruns) | set(self.keyframe_gaps)):
             parts = []
             if n := self.overruns.get(code):
@@ -67,6 +71,18 @@ class RecordLoss:
             out.append(f"{code}: " + ", ".join(parts))
         return out
 
+
+PART_SUFFIX = ".part"
+"""Hậu tố của đoạn **đang ghi**.
+
+Đổi tên khi đóng xong là thao tác nguyên tử trong cùng thư mục, nên ai duyệt ``*.mp4``
+không bao giờ thấy một file dở dang — kể cả khi tiến trình chết giữa chừng, file còn lại
+mang đuôi ``.part`` và tự khai nó chưa hoàn tất.
+
+⚠️ ``.part`` **không** có nghĩa là không đọc được: ``reserved-moov-update-period`` làm mới
+``moov`` mỗi giây nên đoạn đang ghi vẫn mở được, và ``evidenced`` thường cần chính nó (cửa
+sổ bằng chứng hay chạm vào đoạn hiện tại). Đuôi này chỉ nói **"chưa chốt"**, không nói
+"hỏng"."""
 
 _GOP_SAMPLES = 3
 """Số khoảng keyframe lấy mẫu trước khi báo GOP. Khoảng đầu tiên sau khi kết nối là khoảng
@@ -132,6 +148,7 @@ class RecordingBranch:
         self._gop_reported: set[str] = set()
         self._gop: dict[str, float] = {}
         self._loss = RecordLoss()
+        self._pending: dict[str, Path] = {}
 
     # ------------------------------------------------------------------ gắn vào
     def attach(self, Gst: Any, source_bin: Any, camera_code: str) -> None:
@@ -206,6 +223,39 @@ class RecordingBranch:
     def loss(self) -> RecordLoss:
         """Thống kê mất mát. Kiểm nó sau mỗi lần chạy — sạch không phải là mặc định."""
         return self._loss
+
+    def handle_bus_message(self, message: Any) -> bool:
+        """Đổi tên ``.part`` → ``.mp4`` khi ``splitmuxsink`` báo đã đóng xong đoạn.
+
+        Nối vào ``message::element`` của bus pipeline. Trả ``True`` nếu message này là của
+        nhánh ghi.
+
+        ⚠️ Phải chờ message này, KHÔNG được đổi tên lúc đoạn kế mở ra: ``async-finalize``
+        đóng file ở luồng khác, nên "đoạn sau đã mở" không có nghĩa "đoạn trước đã ghi
+        xong". Đo được: ``fragment-closed`` của đoạn N tới **sau** ``fragment-opened`` của
+        đoạn N+1.
+        """
+        st = message.get_structure()
+        if st is None or st.get_name() != "splitmuxsink-fragment-closed":
+            return False
+        ok, location = st.get_string("location"), None
+        location = ok if isinstance(ok, str) else None
+        if location is None:
+            return True
+
+        final = self._pending.pop(location, None)
+        if final is None:
+            return True
+        try:
+            Path(location).rename(final)
+        except OSError as exc:
+            # Không ném: một đoạn không đổi tên được vẫn còn nguyên dữ liệu dưới `.part`,
+            # và làm đứng pipeline vì chuyện này thì mất nhiều hơn được.
+            self._loss.rename_failures[final.name] = str(exc)
+            print(  # noqa: T201
+                f"[record] ⚠️ không đổi tên được {location} → {final}: {exc}", flush=True
+            )
+        return True
 
     # ------------------------------------------------------------------ probe
     def _drop_pts_less(self, _pad: Any, info: Any, camera_code: str) -> Any:
@@ -309,11 +359,15 @@ class RecordingBranch:
             stamp = datetime.datetime.fromtimestamp(opened, tz=datetime.timezone.utc).strftime(
                 self._file_format
             )
-        path = str(self._root / camera_code / f"{stamp}.mp4")
+        final = self._root / camera_code / f"{stamp}.mp4"
+        path = str(final) + PART_SUFFIX
+        self._pending[path] = final
         if self._fragments is not None:
-            self._fragments.open_fragment(camera_code, path, opened, self._segment_sec)
+            # Sổ đoạn giữ đường dẫn CUỐI: nơi tiêu thụ tra theo tên ổn định, và
+            # `Fragment.live_path` mới là chỗ đọc khi đoạn chưa chốt.
+            self._fragments.open_fragment(camera_code, str(final), opened, self._segment_sec)
         if self._on_fragment is not None:
-            self._on_fragment(camera_code, path, opened)
+            self._on_fragment(camera_code, str(final), opened)
         return path
 
     def _fragment_unix(self, sample: Any, camera_code: str) -> float:
