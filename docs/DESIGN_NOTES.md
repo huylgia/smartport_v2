@@ -1282,3 +1282,58 @@ hai service cùng máy cần hai giấy phép — gần như chắc chắn xảy
 thì nhỏ: kẻ chép phần mềm sang máy khác vẫn bị chặn bởi `dmi_uuid`.
 
 ⚠️ Đổi thành phần vân tay làm **mọi giấy phép đã cấp hết hiệu lực**. Phải cấp lại.
+
+---
+
+## DN-015 · Đồng hồ trên clip bằng chứng vẽ ở `evidenced`, và lấy giờ từ **tên đoạn**
+
+**Trạng thái:** ✅ đã chốt hướng · đã đo hai nguồn thời gian · áp dụng ở Phase 7
+
+### Vấn đề
+
+Camera cảng **không bật OSD**, nên clip bằng chứng không có gì để đối chiếu thời gian bằng
+mắt. Người xem lại một sự kiện không biết khung hình này ứng với lúc nào.
+
+### Vì sao KHÔNG đóng dấu vào bản ghi 24/7
+
+Vẽ chữ lên khung hình bắt buộc `decode → vẽ → encode lại`. GA106 có **1 NVENC** và card
+GeForce bị driver giới hạn 3–8 phiên encode đồng thời (§2.5); 10 camera transcode là **vượt
+trần** — không phải chậm, mà là không chạy được.
+
+Đo 2026-09-01 với 10 camera ghi đồng thời: **ENC 0 % · DEC 0 % · SM 0 %**. Toàn bộ ngân
+sách phần cứng đứng trên con số đó.
+
+### Chốt: vẽ ở `evidenced`
+
+`evidenced` đã phải encode lại clip để vẽ bbox và đường lane. Thêm đồng hồ vào đó tốn thêm
+gần như bằng không: một clip ~45 giây thay vì 10 luồng 24/7.
+
+### ⚠️ Giờ phải lấy từ **tên đoạn**, không phải birthtime
+
+Ba nguồn, đo trên 6 đoạn thật (2026-09-01):
+
+| Nguồn | Lệch so với thời điểm chụp |
+|---|---|
+| **tên file** (`FragmentIndex.start_unix`) | **0** — trên trục PTS đã neo |
+| `birthtime` (`stat -c %W`) | **+2 s** — độ trễ jitterbuffer + hàng đợi |
+| `mtime` (`stat -c %Y`) | **+32 s** — lúc đóng file |
+
+Tên đoạn là `int(opened)` với `opened` lấy từ trục mà `TimeSync` đã neo — **cùng trục** mà
+probe đóng dấu khung. Birthtime là đồng hồ tường lúc file được tạo, và nó gộp cả độ trễ
+truyền. Hai giây nghe nhỏ, nhưng đối chiếu với CATOS thì một xe đã đi được vài mét.
+
+Thời điểm một khung:
+
+```
+thời_điểm_chụp = FragmentIndex.start_unix(đoạn) + PTS_offset_trong_đoạn
+```
+
+Và **tuyệt đối không** dùng `datetime.now()` lúc vẽ — lúc đó đã trễ `delay` 20–40 giây so
+với sự kiện.
+
+### Còn phải chốt ở Phase 7
+
+* Định dạng hiển thị (đề xuất `dd/MM/yyyy HH:mm:ss` GMT+7, góc trên trái).
+* Múi giờ: mọi thứ bên trong là epoch UTC; **chỉ** đổi sang GMT+7 ở bước vẽ. Đổi sớm hơn
+  là mở đường cho hai múi giờ cùng tồn tại trong một hệ.
+* Vẽ bằng `nvdsosd` (trong pipeline) hay `ffmpeg drawtext` (ngoài, lúc dựng clip).

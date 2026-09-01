@@ -198,3 +198,17 @@ def test_fragment_is_frozen() -> None:
     frag = Fragment(path="a", start_unix=1.0, end_unix=2.0)
     with pytest.raises(Exception):  # noqa: B017
         frag.path = "b"  # type: ignore[misc]
+
+
+def test_frame_unix_is_the_capture_time_not_the_file_time() -> None:
+    """Đồng hồ trên clip bằng chứng phải là thời điểm CHỤP (DN-015).
+
+    Đo trên 6 đoạn thật: ``birthtime`` lệch **+2 s** (độ trễ jitterbuffer + hàng đợi),
+    ``mtime`` lệch **+32 s** (lúc đóng file). Chỉ mốc mở đoạn nằm đúng trục PTS đã neo.
+    """
+    frag = Fragment(path="/rec/CAM/1788279527.mp4", start_unix=1788279527.0, end_unix=1788279557.0)
+
+    assert frag.frame_unix(0.0) == 1788279527.0, "khung đầu = mốc mở đoạn"
+    assert frag.frame_unix(12.5) == 1788279539.5
+    # Tên file là epoch NGUYÊN giây; mốc chính xác giữ phần thập phân ở đây.
+    assert frag.frame_unix(0.25) == 1788279527.25

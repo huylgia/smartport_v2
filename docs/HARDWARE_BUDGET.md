@@ -367,6 +367,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Đoạn dở dang có phân biệt được? | **có** — đuôi `.mp4.part`, đổi tên nguyên tử khi đóng | `splitmuxsink-fragment-closed` |
 | 2026-09-01 | dev | Giữ 6 đoạn 30 s | hội tụ đúng **6 + 1 `.part`** · **55 MB**/camera ⇒ ~0,55 GB cả cẩu | chạy 4 phút |
 | 2026-09-01 | dev | Đoạn 30 s có ra đúng 30 s? | **30,00 s** (18 GOP chẵn) | `record --segment-sec 30` |
+| 2026-09-01 | dev | Nguồn giờ cho đồng hồ clip | tên đoạn **0 s** · birthtime **+2 s** · mtime **+32 s** | DN-015 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---

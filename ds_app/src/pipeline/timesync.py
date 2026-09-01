@@ -98,6 +98,18 @@ class Fragment:
     start_unix: float
     end_unix: float
 
+    def frame_unix(self, pts_offset_sec: float) -> float:
+        """Thời điểm CHỤP của một khung, từ độ lệch PTS trong đoạn.
+
+        Đây là nguồn giờ duy nhất đúng cho đồng hồ vẽ lên clip bằng chứng (DN-015).
+
+        ⚠️ Đừng dùng ``birthtime``/``mtime`` của file: đo được chúng lệch **+2 s** và
+        **+32 s** so với thời điểm chụp — birthtime gộp độ trễ jitterbuffer và hàng đợi,
+        mtime là lúc đóng file. Và tuyệt đối đừng dùng ``datetime.now()`` lúc vẽ: job
+        evidence chạy sau sự kiện 20-40 giây.
+        """
+        return self.start_unix + pts_offset_sec
+
     @property
     def live_path(self) -> str:
         """Nơi đọc khi đoạn **chưa chốt**: cùng tên nhưng có đuôi ``.part``.
