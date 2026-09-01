@@ -37,6 +37,7 @@ __all__ = [
     "RULE_CONFIGS",
     "CCode01Config",
     "Crane01Config",
+    "Crane02Config",
     "RuleSpec",
     "TCode01Config",
 ]
@@ -148,6 +149,34 @@ class TCode01Config(_LaneZones):
     """Số khung liên tiếp cùng một số xe mới phát signal."""
 
 
+class Crane02Config(_RuleConfig):
+    """``CRANE02`` — xe vào vị trí ổn định, và **ổn định ở đúng chỗ**.
+
+    Hai điều kiện, không phải một:
+
+    1. bbox đầu kéo không dịch quá ``stable_move_ratio`` trong ``stable_duration``
+    2. tâm bbox nằm trong ``stop_band`` tính từ **một** mép ảnh
+
+    Chỉ điều kiện 1 là không đủ: xe kẹt hoặc dừng chờ giữa khung hình cũng đứng yên, và nếu
+    bỏ qua vị trí thì nó mở cổng OCR cho một lane không có xe nào ở đúng chỗ. Mép mà xe dừng
+    lại cũng cho biết luôn chiều — xem :func:`internal.pkg.geometry.stop_side`.
+    """
+
+    stable_duration: float = Field(default=3.0, gt=0.0)
+    """Giây. Đếm theo **thời gian**, không theo số khung: đếm khung trói định nghĩa "ổn
+    định" vào fps của nguồn, và đổi cấu hình camera là vô tình đổi luôn ngưỡng nghiệp vụ."""
+
+    stable_move_ratio: float = Field(default=0.02, gt=0.0)
+    """Dịch chuyển tối đa, **tỉ lệ so với đường chéo bbox**. Ngưỡng pixel tuyệt đối phụ
+    thuộc độ phân giải và khoảng cách xe tới camera. Xem DN-002 Q3."""
+
+    stop_band: Relative = 0.35
+    """Đầu xe khi dừng phải nằm trong dải này tính từ một mép ảnh, tương đối theo chiều
+    rộng. Ngoài dải ⇒ **không phát signal**, dù bbox đứng yên."""
+
+    head_thresh: Confidence = 0.6
+
+
 class CCode01Config(_RuleConfig):
     """``CCODE01`` — nhận dạng mã container. Rule nặng nhất."""
 
@@ -186,6 +215,7 @@ RULE_CONFIGS: tuple[RuleSpec, ...] = (
     RuleSpec(code="CCODE01", config_model=CCode01Config, roles=(CameraRole.CCODE,)),
     RuleSpec(code="TCODE01", config_model=TCode01Config, roles=(CameraRole.TCODE,)),
     RuleSpec(code="CRANE01", config_model=Crane01Config, roles=(CameraRole.CRANE,)),
+    RuleSpec(code="CRANE02", config_model=Crane02Config, roles=(CameraRole.CRANE,)),
 )
 """Các rule đã có model config.
 

@@ -243,7 +243,7 @@ def test_signal_defaults_to_right_direction() -> None:
         kind=SignalKind.CONTAINER_NO,
         frame_ts=TS,
     )
-    assert s.direction is Direction.RIGHT
+    assert s.direction is Direction.RIGHT_TO_LEFT
     assert s.confidence == 1.0
 
 
@@ -349,7 +349,7 @@ def test_event_slots_replace_v1_duplicated_fields() -> None:
         event_id="GC03-1756312837-1",
         crane_id="GC03",
         lane=Lane.ONE,
-        direction=Direction.RIGHT,
+        direction=Direction.RIGHT_TO_LEFT,
         anchor_ts=TS,
         truck_no="45",
         slots=[
@@ -389,7 +389,7 @@ def test_event_rejects_more_than_two_slots() -> None:
             event_id="e",
             crane_id="GC03",
             lane=Lane.ONE,
-            direction=Direction.RIGHT,
+            direction=Direction.RIGHT_TO_LEFT,
             anchor_ts=TS,
             slots=[ContainerSlot(), ContainerSlot(), ContainerSlot()],
         )
@@ -401,7 +401,7 @@ def test_event_with_no_slots_is_valid() -> None:
         event_id="e",
         crane_id="GC03",
         lane=Lane.ONE,
-        direction=Direction.COUNTER,
+        direction=Direction.LEFT_TO_RIGHT,
         anchor_ts=TS,
     )
     assert ev.slots == []

@@ -278,7 +278,7 @@ class Signal(_Msg):
     ``segment_hint`` và trường này luôn khớp nhau."""
 
     lane: Lane
-    direction: Direction = Direction.RIGHT
+    direction: Direction = Direction.RIGHT_TO_LEFT
     kind: SignalKind
     frame_ts: Timestamp
     confidence: Confidence = 1.0

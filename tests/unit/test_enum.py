@@ -154,7 +154,7 @@ def test_truck_position_is_gone() -> None:
 
 def test_direction_is_a_closed_enum() -> None:
     """Chiều là enum đóng, không phải chỉ số 1/2 kèm tag chuỗi."""
-    assert {d.value for d in Direction} == {"RIGHT", "COUNTER"}
+    assert {d.value for d in Direction} == {"RIGHT_TO_LEFT", "LEFT_TO_RIGHT"}
 
 
 def test_signal_kinds_are_unique() -> None:

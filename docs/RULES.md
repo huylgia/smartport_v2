@@ -18,7 +18,7 @@ camera giao tiếp bằng cách sửa biến class global dùng chung.
 | `CCODE01` | Nhận dạng mã container | ccode | `ccode` | `container_no` |
 | `TCODE01` | Nhận dạng số đầu kéo | tcode | `tcode` | `truck_no` |
 | `CRANE01` | Gán lane từ đầu kéo | crane | `crane` | `lane_active` |
-| `CRANE02` | Xe vào vị trí ổn định | crane | `crane` | `truck_stable` |
+| `CRANE02` | Xe vào vị trí ổn định | crane | `crane` | `truck_stable` (+ `direction`) |
 | `CRANE03` | Cẩu đang thao tác | crane | `crane` | `crane_op` ← **mốc neo** |
 | `CRANE04` | Suy kích thước container | crane | `crane` | `cont_dim`, `cont_position` |
 | `BOT01` | Ảnh soi đáy | bottom | `bottom` | `bottom_ready` |
@@ -51,7 +51,18 @@ thì mỗi camera khai vùng của nó, không cần cờ đảo dấu. Xem
 
 ## `CRANE02` — Xe vào vị trí ổn định
 
-Bbox đầu kéo **không dịch chuyển trong `stable_duration`** ⇒ `truck_stable`.
+**Hai** điều kiện, không phải một:
+
+1. bbox đầu kéo không dịch quá `stable_move_ratio` trong `stable_duration`
+2. tâm bbox nằm trong `stop_band` tính từ **một** mép ảnh
+
+⚠️ Chỉ điều kiện 1 là không đủ. Xe kẹt hoặc dừng chờ giữa khung hình cũng đứng yên đủ 3 s,
+và nếu bỏ qua vị trí thì nó mở cổng OCR cho một lane không có xe nào ở đúng chỗ — 5 camera
+ccode chạy DB detection + SVTR recognition cho một khung hình chẳng có gì.
+
+Mép mà xe dừng lại cũng cho biết luôn **chiều**: xe chạy đầu trước, nên dừng sát mép trái
+nghĩa là nó đi từ phải sang (`RIGHT_TO_LEFT`). Suy từ một khung hình, không cần bám vết —
+và chuỗi bám vết thì đứt mỗi lần xe bị che. Xem `internal/pkg/geometry.py:stop_side`.
 
 Hai lựa chọn thiết kế, đều để bỏ phụ thuộc vào thứ trôi được theo thời gian:
 
@@ -80,8 +91,14 @@ container ↔ đầu xe. Xem [DESIGN_NOTES.md](DESIGN_NOTES.md) DN-001.
 
 | Config | Mặc định | Ghi chú |
 |---|---|---|
-| `stable_duration` | 3,0 s | Cấu hình được |
+| `stable_duration` | 3,0 s | Đếm theo **thời gian**, không theo số khung |
 | `stable_move_ratio` | 0,02 | Dịch chuyển tối đa, tỉ lệ so với đường chéo bbox |
+| `stop_band` | 0,35 | Đầu xe phải nằm trong 35 % ngoài cùng của một mép; ngoài dải ⇒ **không** phát signal |
+| `head_thresh` | 0,6 | Ngưỡng tin cậy bbox đầu kéo |
+
+⚠️ **`stop_band` là giả định cần kiểm.** "Xe chạy đầu trước" đúng với bố trí hiện tại nhưng
+chưa đo. Khai theo từng camera nên chỉnh được; kiểm bằng cách ghi một chu kỳ thật rồi đối
+chiếu hoành độ tâm bbox lúc xe đã dừng.
 
 ⚠️ Chưa có timeout dự phòng để báo vị trí *dù chưa ổn định*. Ngưỡng như vậy sẽ phụ
 thuộc `ContainerCodeCamera.DATABASE` — biến class global đọc chéo từ package khác
@@ -177,7 +194,7 @@ dưới cẩu (xe vào ngược chiều). v1 xử lý bằng một nhánh riêng
   (`character_threshold` 0,3 → 0,5; `min_streak` 3 → 5; thêm `score_threshold`,
   `min_cont_count`). Khi làm, nó là một *cấu hình* khác của cùng chuỗi xử lý. Nhân đôi
   pipeline nghĩa là mọi sửa lỗi sau này phải nhớ sửa hai chỗ.
-* `Direction` vẫn còn trong `common/message.py` và hiện **luôn** là `RIGHT`. Giữ lại vì
+* `Direction` vẫn còn trong `common/message.py` và hiện **luôn** là `RIGHT_TO_LEFT`. Giữ lại vì
   gỡ khỏi hợp đồng message rồi thêm lại là hai lần đổi schema cho cùng một thứ.
 
 

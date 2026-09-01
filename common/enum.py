@@ -83,15 +83,31 @@ class Lane(StrEnum):
 
 
 class Direction(StrEnum):
-    """Chiều thao tác.
+    """Chiều xe chạy, **đo trên trục x của ảnh**.
 
-    Chiều là **tham số**, không phải nhánh: hai chiều dùng chung một engine điều phối,
-    chỉ khác ngưỡng và mốc neo. Nhân đôi đường xử lý cho mỗi chiều nghĩa là mọi sửa lỗi
-    sau này phải nhớ sửa hai chỗ.
+    Tên nêu đủ ba thứ để kiểm chứng được bằng một khung hình: trục, mép xuất phát, và
+    chiều. Probe tính được từ toạ độ; người review đối chiếu được với ảnh.
+
+    ⚠️ Tên cũ là ``RIGHT``/``COUNTER`` và cả hai đều không mô tả gì: ``RIGHT`` không nói
+    phải-của-cái-gì lẫn đi hướng nào, còn ``COUNTER`` giả định có một chiều "chuẩn" — đó là
+    thiên kiến vận hành lọt vào một cái tên kỹ thuật. Hai chiều đối xứng nhau về mặt hình
+    học; chỉ tần suất là khác.
+
+    Chiều là **tham số**, không phải nhánh: hai chiều dùng chung một engine điều phối, chỉ
+    khác ngưỡng và mốc neo. Nhân đôi đường xử lý cho mỗi chiều nghĩa là mọi sửa lỗi sau
+    này phải nhớ sửa hai chỗ.
     """
 
-    RIGHT = "RIGHT"
-    COUNTER = "COUNTER"
+    RIGHT_TO_LEFT = "RIGHT_TO_LEFT"
+    """Xe vào từ mép PHẢI ảnh, chạy sang trái. Toạ độ x giảm dần."""
+
+    LEFT_TO_RIGHT = "LEFT_TO_RIGHT"
+    """Xe vào từ mép TRÁI ảnh, chạy sang phải. Toạ độ x tăng dần.
+
+    ⚠️ **Chưa được sinh ra ở đâu cả** — chiều này đang hoãn (xem ``docs/RULES.md``). Giữ
+    trong hợp đồng vì gỡ rồi thêm lại là hai lần đổi schema cho cùng một thứ. Ai đọc một
+    ``Signal`` hôm nay có thể yên tâm ``direction`` luôn là ``RIGHT_TO_LEFT``; đừng viết
+    code *dựa* vào điều đó."""
 
 
 class IxCd(StrEnum):

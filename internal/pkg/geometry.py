@@ -34,7 +34,7 @@ from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.prepared import PreparedGeometry, prep
 
 if TYPE_CHECKING:
-    from common.enum import Lane
+    from common.enum import Direction, Lane
 
 __all__ = [
     "Anchor",
@@ -42,6 +42,7 @@ __all__ = [
     "PolygonZone",
     "anchor_points",
     "denormalize",
+    "stop_side",
 ]
 
 XY = tuple[float, float]
@@ -304,3 +305,34 @@ class LaneZones:
 
     def __getitem__(self, lane: Lane) -> PolygonZone:
         return self._zones[lane]
+
+
+def stop_side(center_x: float, *, stop_band: float) -> Direction | None:
+    """Xe dừng sát mép nào ⇒ nó đã chạy theo chiều nào. ``None`` = vị trí KHÔNG hợp lệ.
+
+    Args:
+        center_x: Hoành độ tâm bbox đầu kéo, **tương đối** ``[0..1]`` theo chiều rộng ảnh.
+        stop_band: Bề rộng dải hợp lệ tính từ mỗi mép, cũng tương đối. ``0.35`` nghĩa là
+            đầu xe phải nằm trong 35 % ngoài cùng của một trong hai mép.
+
+    Vì sao cần cổng này: "bbox không dịch chuyển trong ``stable_duration``" **không đủ** để
+    kết luận xe đã vào đúng vị trí. Một xe kẹt hoặc dừng chờ giữa khung hình cũng đứng yên,
+    và nếu chỉ xét đứng yên thì nó mở cổng OCR cho một lane không có xe nào ở đúng chỗ.
+
+    Suy chiều từ **mép xe dừng lại**, không từ lịch sử chuyển động: xe chạy đầu trước, nên
+    dừng sát mép trái nghĩa là nó đi từ phải sang. Cách này chỉ cần một khung hình, trong
+    khi bám vết cần cả chuỗi — và chuỗi thì đứt mỗi lần xe bị che.
+
+    ⚠️ Giả định "xe chạy đầu trước" đúng với bố trí hiện tại nhưng **là giả định**.
+    ``stop_band`` khai theo từng camera nên chỉnh được; kiểm bằng cách ghi một chu kỳ thật
+    rồi đối chiếu ``center_x`` lúc xe đã dừng.
+    """
+    from common.enum import Direction
+
+    if not 0.0 < stop_band < 0.5:
+        raise ValueError(f"stop_band phải nằm trong (0, 0.5), nhận {stop_band}")
+    if center_x <= stop_band:
+        return Direction.RIGHT_TO_LEFT
+    if center_x >= 1.0 - stop_band:
+        return Direction.LEFT_TO_RIGHT
+    return None

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from common.enum import Lane
+from common.enum import Direction, Lane
 from internal.pkg.geometry import (
     Anchor,
     LaneZones,
     PolygonZone,
     anchor_points,
     denormalize,
+    stop_side,
 )
 
 FRAME = (1280, 720)
@@ -267,3 +268,47 @@ def test_partial_lane_config_is_allowed() -> None:
     )
     assert len(two) == 2
     assert Lane.THREE not in two
+
+
+# ---------------------------------------------------------------- mép xe dừng
+
+
+@pytest.mark.parametrize(
+    ("center_x", "expected"),
+    [
+        (0.0, Direction.RIGHT_TO_LEFT),
+        (0.20, Direction.RIGHT_TO_LEFT),
+        (0.35, Direction.RIGHT_TO_LEFT),  # đúng biên: vẫn hợp lệ
+        (0.36, None),
+        (0.50, None),  # giữa ảnh — xe kẹt hoặc dừng chờ, KHÔNG phải vị trí làm hàng
+        (0.64, None),
+        (0.65, Direction.LEFT_TO_RIGHT),
+        (1.0, Direction.LEFT_TO_RIGHT),
+    ],
+)
+def test_stop_side_classifies_by_edge(center_x: float, expected: Direction | None) -> None:
+    assert stop_side(center_x, stop_band=0.35) == expected
+
+
+def test_stop_side_rejects_the_middle_even_when_the_bbox_is_frozen() -> None:
+    """⚠️ Điểm chính của cổng này: "bbox đứng yên" KHÔNG đồng nghĩa "xe vào đúng vị trí".
+
+    Xe kẹt hoặc dừng chờ giữa khung hình cũng đứng yên đủ ``stable_duration``. Không có cổng
+    vị trí thì nó mở cổng OCR cho một lane không có xe nào ở đúng chỗ — và 5 camera ccode
+    chạy DB detection + SVTR recognition cho một khung hình chẳng có gì.
+    """
+    assert stop_side(0.5, stop_band=0.35) is None
+    assert stop_side(0.5, stop_band=0.49) is None
+
+
+def test_stop_band_widens_the_valid_region() -> None:
+    """``stop_band`` khai theo từng camera vì bố trí mỗi cẩu mỗi khác."""
+    assert stop_side(0.4, stop_band=0.35) is None
+    assert stop_side(0.4, stop_band=0.45) is Direction.RIGHT_TO_LEFT
+
+
+@pytest.mark.parametrize("bad", [0.0, 0.5, 0.7, -0.1])
+def test_stop_band_outside_zero_to_half_is_rejected(bad: float) -> None:
+    """``>= 0.5`` làm hai dải chồng nhau ⇒ mọi vị trí đều "hợp lệ", tức cổng vô hiệu."""
+    with pytest.raises(ValueError, match="stop_band"):
+        stop_side(0.5, stop_band=bad)
