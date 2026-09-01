@@ -212,3 +212,91 @@ def test_frame_unix_is_the_capture_time_not_the_file_time() -> None:
     assert frag.frame_unix(12.5) == 1788279539.5
     # Tên file là epoch NGUYÊN giây; mốc chính xác giữ phần thập phân ở đây.
     assert frag.frame_unix(0.25) == 1788279527.25
+
+
+# ---------------------------------------------------------------- ghép nhiều đoạn
+
+
+def _even_index(n: int = 6, *, start: float = 1000.0, seg: float = 30.0) -> FragmentIndex:
+    ix = FragmentIndex()
+    for i in range(n):
+        ix.open_fragment("CAM", f"/rec/{int(start + i * seg)}.mp4", start + i * seg, seg)
+    return ix
+
+
+def test_a_window_inside_one_segment_needs_one_piece() -> None:
+    pieces, gaps = _even_index().plan("CAM", 1005.0, 1015.0)
+    assert len(pieces) == 1 and gaps == []
+    assert (pieces[0].start_offset, pieces[0].end_offset) == (5.0, 15.0)
+
+
+def test_an_evidence_window_spans_several_segments() -> None:
+    """Cửa sổ bằng chứng (45 s) rộng hơn một đoạn (30 s) ⇒ clip LUÔN ghép từ nhiều đoạn.
+
+    Đây là lý do đồng hồ phải vẽ theo TỪNG lát: mỗi lát có mốc tuyệt đối riêng.
+    """
+    pieces, gaps = _even_index().plan("CAM", 1045.0, 1090.0)
+
+    assert gaps == []
+    assert len(pieces) == 2, "45 s cửa sổ, đoạn 30 s"
+    assert [p.fragment.path for p in pieces] == ["/rec/1030.mp4", "/rec/1060.mp4"]
+    assert pieces[0].start_unix == 1045.0, "mốc tuyệt đối của lát đầu"
+    assert pieces[1].start_unix == 1060.0, "lát sau bắt đầu ở mốc mở đoạn của NÓ"
+    assert sum(p.duration for p in pieces) == 45.0
+
+
+def test_each_piece_carries_its_own_absolute_start() -> None:
+    """⚠️ Tính giờ trên clip đã ghép là sai: `ffmpeg concat` đặt lại PTS về 0, và đoạn
+    không dài đều nhau. Mốc phải lấy từ đoạn NGUỒN."""
+    pieces, _ = _even_index().plan("CAM", 1025.0, 1095.0)
+    for piece in pieces:
+        assert piece.start_unix == piece.fragment.start_unix + piece.start_offset
+
+
+def test_uneven_segments_do_not_shift_the_clock() -> None:
+    """Đoạn thật dài không đều (đo được 30,00 s và 28,47 s) — mốc vẫn phải đúng."""
+    ix = FragmentIndex()
+    ix.open_fragment("CAM", "/rec/a.mp4", 1000.0, 30.0)
+    ix.open_fragment("CAM", "/rec/b.mp4", 1028.47, 30.0)  # đoạn trước chỉ dài 28,47 s
+
+    pieces, gaps = ix.plan("CAM", 1020.0, 1035.0)
+    assert gaps == []
+    assert pieces[0].start_unix == 1020.0
+    assert pieces[1].start_unix == 1028.47, "không phải 1030 — đoạn trước ngắn hơn danh nghĩa"
+
+
+def test_a_swept_segment_shows_up_as_a_gap() -> None:
+    """⚠️ Lỗ hổng phải báo ra, không được lặng lẽ cắt ngắn clip.
+
+    Clip thiếu 30 giây ở giữa trông y hệt clip bình thường, và người xem lại sự kiện sẽ
+    tin nó đầy đủ.
+    """
+    ix = FragmentIndex()
+    ix.open_fragment("CAM", "/rec/a.mp4", 1000.0, 30.0)
+    ix.open_fragment("CAM", "/rec/c.mp4", 1060.0, 30.0)  # đoạn 1030 đã bị dọn
+
+    pieces, gaps = ix.plan("CAM", 1010.0, 1070.0)
+    assert [p.fragment.path for p in pieces] == ["/rec/a.mp4", "/rec/c.mp4"]
+
+    # Mốc bắt đầu lỗ hổng là CẬN DƯỚI: ta chỉ biết đoạn a không dài quá cấu hình cộng một
+    # GOP, không biết chính xác nó dừng ở đâu. Điều phải đúng là lỗ hổng **được báo** và
+    # có độ rộng gần đúng.
+    assert len(gaps) == 1
+    start, end = gaps[0]
+    assert end == 1060.0
+    assert 1030.0 <= start <= 1032.0, f"lỗ hổng ~28-30 s, nhận {end - start:.1f} s"
+
+
+def test_a_window_reaching_past_what_was_recorded_is_a_gap() -> None:
+    """Xin đoạn cũ hơn thứ còn giữ (retention 3 phút) ⇒ lỗ hổng ở đầu."""
+    ix = _even_index(n=2, start=1000.0)
+    pieces, gaps = ix.plan("CAM", 940.0, 1030.0)
+    assert gaps and gaps[0] == (940.0, 1000.0)
+    assert pieces and pieces[0].start_unix == 1000.0
+
+
+def test_an_empty_or_inverted_window_plans_nothing() -> None:
+    ix = _even_index()
+    assert ix.plan("CAM", 1050.0, 1050.0) == ([], [])
+    assert ix.plan("CAM", 1050.0, 1040.0) == ([], [])
+    assert ix.plan("KHONG_CO", 1000.0, 1100.0) == ([], [(1000.0, 1100.0)])

@@ -1331,9 +1331,38 @@ thời_điểm_chụp = FragmentIndex.start_unix(đoạn) + PTS_offset_trong_đo
 Và **tuyệt đối không** dùng `datetime.now()` lúc vẽ — lúc đó đã trễ `delay` 20–40 giây so
 với sự kiện.
 
-### Còn phải chốt ở Phase 7
+### ⚠️ Một clip ghép từ NHIỀU đoạn — vẽ trước khi ghép
 
-* Định dạng hiển thị (đề xuất `dd/MM/yyyy HH:mm:ss` GMT+7, góc trên trái).
+Cửa sổ bằng chứng rộng hơn một đoạn: `[-35 s, +10 s]` = 45 giây, đoạn 30 giây. Nên clip
+**luôn** ghép từ 2-3 đoạn, và mỗi đoạn có mốc tuyệt đối riêng.
+
+Tính giờ trên clip **đã ghép** (`clip_start + n/fps`) sai hai lần:
+
+* Đoạn không dài đều nhau — đo được 30,00 s và 28,47 s trong cùng một lần chạy.
+* `ffmpeg concat` **đặt lại PTS về 0**, nên PTS trong clip không còn là PTS gốc.
+
+Nên đồng hồ phải vẽ **theo từng lát, trước khi ghép**, lấy gốc từ đoạn nguồn của lát đó.
+`FragmentIndex.plan()` trả về đúng danh sách lát ấy, mỗi lát mang `start_unix` riêng.
+
+Nó cũng trả về **lỗ hổng** — khoảng không đoạn nào phủ (đoạn đã bị dọn, hoặc camera rớt).
+Phải báo ra chứ không lặng lẽ cắt ngắn: một clip thiếu 30 giây ở giữa trông y hệt clip bình
+thường, và người xem lại sự kiện sẽ tin nó đầy đủ.
+
+⚠️ `Fragment.end_unix` kéo dài tới lúc đoạn **sau** mở ra — đúng cho tra cứu, sai cho cắt
+clip khi có lỗ hổng. Dùng `Fragment.content_end`.
+
+### Chốt cho Phase 7
+
+* **Vẽ bằng `nvdsosd`** (trong pipeline DeepStream), không phải `ffmpeg drawtext`.
+* **Định dạng `dd/MM/yyyy HH:mm:ss`, GMT+7**, góc trên trái.
 * Múi giờ: mọi thứ bên trong là epoch UTC; **chỉ** đổi sang GMT+7 ở bước vẽ. Đổi sớm hơn
   là mở đường cho hai múi giờ cùng tồn tại trong một hệ.
-* Vẽ bằng `nvdsosd` (trong pipeline) hay `ffmpeg drawtext` (ngoài, lúc dựng clip).
+* Thời điểm một khung trong pipeline `nvdsosd`: `lát.start_unix + frame_meta.buf_pts/1e9`.
+  Một pipeline xử lý nhiều lát thì ánh xạ `pad_index → lát`, đúng khuôn `build_sources`
+  đang dùng (`pad_of_camera`).
+
+### Còn để ngỏ
+
+Mốc bắt đầu của lỗ hổng hiện là **cận dưới**: `content_end` xấp xỉ bằng cấu hình cộng một
+GOP. Muốn chính xác thì lấy thời điểm đóng thật từ message `splitmuxsink-fragment-closed`
+(nó mang `running-time`). Chỉ cần khi `evidenced` đòi độ chính xác đó.

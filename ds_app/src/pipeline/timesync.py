@@ -24,7 +24,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-__all__ = ["Fragment", "FragmentIndex", "TimeBase", "TimeSync"]
+__all__ = ["ClipPiece", "Fragment", "FragmentIndex", "TimeBase", "TimeSync"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +96,41 @@ class Fragment:
     :attr:`live_path`."""
 
     start_unix: float
+
     end_unix: float
+    """Tới lúc đoạn SAU mở ra — dùng để **tra cứu** ("khoảnh khắc này thuộc đoạn nào").
+
+    ⚠️ KHÔNG phải chỗ nội dung kết thúc. Nếu đoạn kế bị mất (camera rớt, đoạn bị dọn) thì
+    trường này kéo dài qua cả khoảng trống — dùng nó để cắt clip sẽ xin ffmpeg một khoảng
+    thời gian không có trong file. Dùng :attr:`content_end` cho việc đó."""
+
+    nominal_sec: float = 0.0
+    """Độ dài đoạn theo cấu hình. ``0`` = không biết (đoạn dựng tay trong test)."""
+
+    _SLACK_RATIO = 1.2
+    _SLACK_SEC = 2.0
+    """Đoạn thật dài hơn cấu hình vì ``splitmuxsink`` chỉ cắt tại keyframe: độ dài thật là
+    ``ceil(giới hạn / GOP) lần GOP``, tức dôi **tối đa một GOP**.
+
+    Lấy cái CHẶT hơn trong hai biên: 20 % đúng cho đoạn ngắn, ``+2 s`` đúng cho đoạn dài
+    (giới hạn 30 s, GOP 1,67 s ⇒ dôi 1,67 s, không phải 6 s).
+
+    ⚠️ Đây là **xấp xỉ**, nên mốc bắt đầu của lỗ hổng là một *cận dưới*: lỗ hổng thật có
+    thể rộng hơn. Muốn chính xác thì phải lấy thời điểm đóng thật từ message
+    ``splitmuxsink-fragment-closed`` (nó mang ``running-time``) — việc của Phase 7 khi
+    ``evidenced`` cần độ chính xác đó."""
+
+    @property
+    def content_end(self) -> float:
+        """Chỗ nội dung thật sự kết thúc — dùng khi CẮT clip.
+
+        Khác :attr:`end_unix` đúng ở chỗ có lỗ hổng. Không biết ``nominal_sec`` thì đành
+        tin ``end_unix``.
+        """
+        if self.nominal_sec <= 0:
+            return self.end_unix
+        slack = min(self.nominal_sec * self._SLACK_RATIO, self.nominal_sec + self._SLACK_SEC)
+        return min(self.end_unix, self.start_unix + slack)
 
     def frame_unix(self, pts_offset_sec: float) -> float:
         """Thời điểm CHỤP của một khung, từ độ lệch PTS trong đoạn.
@@ -118,6 +152,35 @@ class Fragment:
         giây) và ``evidenced`` thường cần chính nó — cửa sổ bằng chứng hay chạm vào đoạn
         hiện tại. Nên đừng chờ đoạn đóng: thử :attr:`path`, không có thì đọc cái này."""
         return self.path + ".part"
+
+
+@dataclass(frozen=True, slots=True)
+class ClipPiece:
+    """Một lát cắt từ **một** đoạn, để ghép thành clip bằng chứng.
+
+    Cửa sổ bằng chứng rộng hơn một đoạn (``[-35 s, +10 s]`` = 45 s, đoạn 30 s), nên clip
+    **luôn** ghép từ 2-3 đoạn. Mỗi lát mang theo mốc tuyệt đối của chính nó.
+
+    ⚠️ Đây là lý do đồng hồ phải vẽ **trước** khi ghép, theo từng lát. Tính giờ trên clip
+    đã ghép (``clip_start + n/fps``) là sai hai lần: đoạn không dài đều nhau (đo được
+    30,00 s và 28,47 s), và ``ffmpeg concat`` đặt lại PTS về 0. Xem DN-015.
+    """
+
+    fragment: Fragment
+    start_offset: float
+    """Giây tính từ đầu đoạn — đưa thẳng vào ``ffmpeg -ss``."""
+
+    end_offset: float
+    """Giây tính từ đầu đoạn — đưa thẳng vào ``ffmpeg -to``."""
+
+    @property
+    def start_unix(self) -> float:
+        """Mốc tuyệt đối của khung đầu lát này. Gốc cho đồng hồ vẽ lên nó."""
+        return self.fragment.start_unix + self.start_offset
+
+    @property
+    def duration(self) -> float:
+        return self.end_offset - self.start_offset
 
 
 _GUARD_SEC = 1.0
@@ -151,12 +214,12 @@ class FragmentIndex:
             if frags and start_unix > frags[-1].start_unix:
                 # Đoạn trước kết thúc đúng lúc đoạn này bắt đầu — đây là độ dài THẬT của nó.
                 prev = frags[-1]
-                frags[-1] = Fragment(prev.path, prev.start_unix, start_unix)
+                frags[-1] = Fragment(prev.path, prev.start_unix, start_unix, prev.nominal_sec)
                 real = start_unix - prev.start_unix
                 if real > 0:
                     self._shortest[camera_code] = min(self._shortest.get(camera_code, real), real)
 
-            frags.append(Fragment(path, start_unix, start_unix + duration_sec))
+            frags.append(Fragment(path, start_unix, start_unix + duration_sec, duration_sec))
             if len(frags) > self._max_history:
                 del frags[: len(frags) - self._max_history]
 
@@ -205,6 +268,54 @@ class FragmentIndex:
         """
         with self._lock:
             return self._shortest.get(camera_code, self._nominal)
+
+    def plan(
+        self, camera_code: str, from_unix: float, to_unix: float
+    ) -> tuple[list[ClipPiece], list[tuple[float, float]]]:
+        """Các lát cần cắt để dựng clip cho cửa sổ ``[from_unix, to_unix)``, và các **lỗ hổng**.
+
+        Returns:
+            ``(lát, lỗ hổng)``. Lỗ hổng là những khoảng không đoạn nào phủ — đoạn đã bị
+            dọn, hoặc camera mất kết nối lúc đó.
+
+        ⚠️ Trả lỗ hổng ra chứ không lặng lẽ cắt ngắn clip. Một clip thiếu 8 giây ở giữa
+        trông y hệt một clip bình thường, và người xem lại sự kiện sẽ tin nó đầy đủ. Nơi
+        gọi phải quyết định: báo, hay dựng clip kèm ghi chú.
+        """
+        if to_unix <= from_unix:
+            return [], []
+
+        with self._lock:
+            frags = list(self._frags.get(camera_code, ()))
+
+        pieces: list[ClipPiece] = []
+        gaps: list[tuple[float, float]] = []
+        cursor = from_unix
+
+        for frag in frags:
+            # `content_end`, KHÔNG phải `end_unix`: cái sau kéo dài qua cả lỗ hổng.
+            covers_to = frag.content_end
+            if covers_to <= cursor or frag.start_unix >= to_unix:
+                continue
+            if frag.start_unix > cursor:
+                gaps.append((cursor, frag.start_unix))
+                cursor = frag.start_unix
+
+            stop = min(covers_to, to_unix)
+            pieces.append(
+                ClipPiece(
+                    fragment=frag,
+                    start_offset=cursor - frag.start_unix,
+                    end_offset=stop - frag.start_unix,
+                )
+            )
+            cursor = stop
+            if cursor >= to_unix:
+                break
+
+        if cursor < to_unix:
+            gaps.append((cursor, to_unix))
+        return pieces, gaps
 
     def latest(self, camera_code: str) -> Fragment | None:
         with self._lock:
