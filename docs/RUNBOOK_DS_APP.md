@@ -221,7 +221,31 @@ gần nhất. Không có `reserved-moov-update-period` thì mất **trọn cả 
 Sweeper duyệt `*.mp4*` nên dọn được cả `.part` mồ côi — nó luôn là file to nhất trong thư
 mục vì chưa bị cắt.
 
-### 4.3 Kiểm nhánh ghi có mất dữ liệu không
+### 4.3 Giữ bao nhiêu, và vì sao không ít hơn
+
+Mặc định: **6 đoạn 30 giây mỗi camera = 3 phút**, ~0,55 GB cho cả 10 camera.
+
+```bash
+SEGMENT_SEC=30     # 18 GOP chẵn ⇒ đoạn ra đúng 30,00 s
+KEEP_SEGMENTS=6    # mỗi camera; 0 = không dọn
+```
+
+Đếm **số đoạn** chứ không đếm tuổi: độ dài đoạn dao động theo GOP (đo được 8,33 s và
+9,26 s cho cùng cấu hình 10 s), nên đếm tuổi cho ra số đoạn khác nhau mỗi lúc.
+
+⚠️ **Sàn cứng 75 giây.** Ràng buộc thật không phải độ dài clip mà là clip **với tới bao xa
+về quá khứ**: cửa sổ xa nhất `-35 s` với `delay: 40 s` ⇒ lúc job chạy, dữ liệu cần đã 75 s
+tuổi. `SweepPolicy` từ chối mọi `min_age_sec` nằm giữa 0 và 75 — một con số như 30 trông
+đã cân nhắc nhưng vẫn xoá mất bằng chứng, và xoá im lặng.
+
+| Giữ | Biên trên sàn | Đĩa (10 camera) |
+|---|---|---|
+| 60 s | **−15 s** ❌ mất bằng chứng | 0,17 GB |
+| 120 s | 45 s | 0,35 GB |
+| **180 s** (mặc định) | **105 s** | **0,52 GB** |
+| 300 s | 225 s | 0,87 GB |
+
+### 4.4 Kiểm nhánh ghi có mất dữ liệu không
 
 `record` báo ở cuối mỗi lần chạy và **thoát khác 0** nếu có mất:
 
@@ -265,7 +289,7 @@ print("overrun:", n[0])'
 Nguồn nhanh (60 fps) → hàng đợi 2 buffer → sink cố ý ngủ 50 ms mỗi buffer. Đo được
 **225 lần overrun trong 5 giây** — tín hiệu nối đúng.
 
-### 4.4 Mã camera suy từ URL, không khai
+### 4.5 Mã camera suy từ URL, không khai
 
 Định danh là `<mã cẩu>_<ip>_<cổng>`, ví dụ `GC03_113_160_225_15_1508`. Nó là tên thư mục
 ghi hình và là trường `camera_code` trong message, nên hai thứ đó không thể trôi khỏi nhau.
@@ -434,7 +458,7 @@ URL lấy từ định dạng phân tách mà quên dừng ở dấu phân tách
 ### `mã camera trùng nhau: [...]`
 
 Hai camera cùng host **và** cùng cổng, hoặc URL thiếu cổng. Để nguyên thì dữ liệu của camera
-này bị gán cho camera kia mà không có gì báo. Xem §4.4.
+này bị gán cho camera kia mà không có gì báo. Xem §4.5.
 
 ### `[record] <cam>: bỏ buffer không có PTS`
 

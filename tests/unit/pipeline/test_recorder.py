@@ -530,5 +530,5 @@ def test_sweeper_sees_part_files(tmp_path: Path) -> None:
 
     os.utime(old, (time.time() - 9999, time.time() - 9999))
 
-    result = sweep(tmp_path, SweepPolicy(max_age_sec=60, min_age_sec=1))
+    result = sweep(tmp_path, SweepPolicy(max_age_sec=100, min_age_sec=0, max_files_per_camera=0))
     assert old.name in {p.name for p in result.deleted}

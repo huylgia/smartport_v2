@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from ds_app.src.pipeline.sweeper import SweepPolicy, sweep
+from ds_app.src.pipeline.sweeper import EVIDENCE_REACH_SEC, SweepPolicy, sweep
 
 NOW = 1_800_000_000.0
 MB = 1024**2
@@ -209,7 +209,8 @@ def test_defaults_match_the_documented_budget() -> None:
     """Mặc định phải khớp HARDWARE_BUDGET §2.6, không phải con số tuỳ hứng."""
     p = SweepPolicy()
     assert p.max_age_sec == 30 * 60, "30 phút = cửa sổ triage"
-    assert p.min_age_sec == 5 * 60, "5 phút = cửa sổ evidence xa nhất (-35s + delay 40s)"
+    assert p.min_age_sec == EVIDENCE_REACH_SEC, "sàn = tầm với của evidenced"
+    assert p.max_files_per_camera == 6, "6 đoạn, mỗi đoạn 30 s = 3 phút"
     assert p.max_bytes == 20 * 1024**3, "20 GB, chừa biên trong yêu cầu 50 GB"
 
 
@@ -357,3 +358,92 @@ def test_over_budget_warns_against_lowering_the_floor(
     glib.scheduled[0][1]()
 
     assert "ĐỪNG nới min_age_sec" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- giới hạn số lượng
+
+
+def _seg(d: Path, name: str, *, age: float, size: int = 100) -> Path:
+    import os
+    import time
+
+    f = d / name
+    f.write_bytes(b"x" * size)
+    os.utime(f, (time.time() - age, time.time() - age))
+    return f
+
+
+def test_keeps_only_the_newest_n_segments_per_camera(tmp_path: Path) -> None:
+    """Giữ N đoạn gần nhất mỗi camera — mức chính, áp trước tuổi và dung lượng.
+
+    Đếm file chứ không đếm tuổi vì độ dài đoạn dao động theo GOP (đo được 8,33 s và 9,26 s
+    cho cùng cấu hình 10 s). Đếm tuổi thì số đoạn giữ lại thay đổi theo.
+    """
+    cam = tmp_path / "CAM"
+    cam.mkdir()
+    for i in range(10):
+        _seg(cam, f"{i}.mp4", age=1000 - i * 100)
+
+    result = sweep(tmp_path, SweepPolicy(max_files_per_camera=6))
+
+    left = sorted(p.name for p in cam.glob("*.mp4"))
+    assert len(left) == 6, f"phải còn đúng 6, còn {left}"
+    assert left == ["4.mp4", "5.mp4", "6.mp4", "7.mp4", "8.mp4", "9.mp4"], "giữ MỚI nhất"
+    assert len(result.deleted) == 4
+
+
+def test_the_count_limit_is_per_camera_not_global(tmp_path: Path) -> None:
+    """Hai camera mỗi cái 6 đoạn thì không cái nào bị xoá — trần là của TỪNG camera."""
+    for name in ("A", "B"):
+        d = tmp_path / name
+        d.mkdir()
+        for i in range(6):
+            _seg(d, f"{i}.mp4", age=1000 - i * 100)
+
+    sweep(tmp_path, SweepPolicy(max_files_per_camera=6))
+    assert len(list((tmp_path / "A").glob("*.mp4"))) == 6
+    assert len(list((tmp_path / "B").glob("*.mp4"))) == 6
+
+
+def test_evidence_floor_beats_the_count_limit(tmp_path: Path) -> None:
+    """⚠️ Sàn cứng thắng giới hạn số lượng.
+
+    Nếu đoạn ngắn bất thường (GOP đổi, camera trục trặc), 6 đoạn có thể chỉ phủ vài giây.
+    Thà giữ dư còn hơn xoá mất thứ ``evidenced`` sắp cần.
+    """
+    cam = tmp_path / "CAM"
+    cam.mkdir()
+    for i in range(10):
+        _seg(cam, f"{i}.mp4", age=10 - i)  # tất cả đều trẻ hơn sàn 75 s
+
+    sweep(tmp_path, SweepPolicy(max_files_per_camera=2))
+    assert len(list(cam.glob("*.mp4"))) == 10, "không xoá gì: mọi đoạn còn trong tầm với"
+
+
+def test_a_floor_below_the_evidence_reach_is_rejected() -> None:
+    """Một con số như 30 trông đã cân nhắc nhưng vẫn xoá mất bằng chứng — và xoá im lặng."""
+    with pytest.raises(ValueError, match="tầm với của evidenced"):
+        SweepPolicy(min_age_sec=30)
+
+
+def test_an_explicit_zero_floor_is_allowed_for_offline_cleanup() -> None:
+    """``0`` là "cố ý dọn sạch", khác hẳn một con số nhỏ do sơ ý."""
+    assert SweepPolicy(min_age_sec=0, max_age_sec=1).min_age_sec == 0
+
+
+def test_under_the_count_limit_nothing_is_deleted(tmp_path: Path) -> None:
+    """⚠️ Chưa vượt trần thì KHÔNG xoá gì.
+
+    Đã xảy ra thật: `len(group) - max_files` ra số âm, và `group[:-2]` cắt từ CUỐI danh
+    sách — xoá đúng hai đoạn đáng giữ nhất. Chạy thật mới lộ, vì test cũ chỉ thử trường
+    hợp vượt trần.
+    """
+    cam = tmp_path / "CAM"
+    cam.mkdir()
+    for i in range(4):
+        _seg(cam, f"{i}.mp4", age=1000 - i * 100)
+
+    result = sweep(tmp_path, SweepPolicy(max_files_per_camera=6))
+
+    assert result.deleted == (), "4 đoạn, trần 6 — không được xoá gì"
+    assert len(list(cam.glob("*.mp4"))) == 4

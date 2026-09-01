@@ -69,8 +69,8 @@ services:
         --cam ${CAM:-1}
         --duration ${DUR:-60}
         --out /rec
-        --segment-sec ${SEGMENT_SEC:-10}
-        --retain-sec ${RETAIN_SEC:-1800}
+        --segment-sec ${SEGMENT_SEC:-30}
+        --keep-segments ${KEEP_SEGMENTS:-6}
         ${META:+--show-meta}
     restart: "no"
 

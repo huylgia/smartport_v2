@@ -27,16 +27,38 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["SweepPolicy", "SweepResult", "schedule", "sweep"]
+__all__ = ["EVIDENCE_REACH_SEC", "SweepPolicy", "SweepResult", "schedule", "sweep"]
+
+EVIDENCE_REACH_SEC = 75.0
+"""Đoạn ghi phải sống ít nhất bấy nhiêu giây — **sàn cứng**, không phải sở thích.
+
+Suy từ cửa sổ bằng chứng xa nhất: camera đáy cắt clip ``[-35 s, +10 s]`` với ``delay: 40 s``.
+Job chạy ở ``T+40`` và cần dữ liệu từ ``T-35``, tức dữ liệu đã **75 giây tuổi** ngay lúc
+đọc. Xoá sớm hơn thì bằng chứng biến mất — và biến mất *im lặng*, vì "không có đoạn" trông
+giống hệt "sự kiện này chưa có clip".
+
+Con số này neo vào ``configs/operations/*.yaml`` (Phase 6). Đổi cửa sổ ở đó thì phải đổi ở
+đây; ``SweepPolicy`` từ chối mọi cấu hình xuống dưới nó."""
 
 
 @dataclass(frozen=True, slots=True)
 class SweepPolicy:
     """Ngưỡng dọn dẹp.
 
+    Ba mức, áp theo thứ tự: **số lượng** → tuổi → dung lượng. Số lượng là mức chính; hai
+    mức kia là lưới chắn cho trường hợp bất thường (đoạn ngắn bất ngờ, đĩa nhỏ hơn dự kiến).
+
     Args:
-        max_age_sec: Xoá đoạn già hơn mức này. Mặc định 30 phút — cửa sổ để người vận hành
-            còn xem lại được khi có sự cố (≈4,8 GB ở 30 fps).
+        max_files_per_camera: Giữ N đoạn **gần nhất** mỗi camera. ``0`` = không giới hạn
+            theo số lượng.
+
+            Đếm file chứ không đếm tuổi vì độ dài đoạn **dao động**: ``splitmuxsink`` chỉ
+            cắt tại keyframe nên nó là bội số của GOP, và GOP đo được không cố định (8,33 s
+            và 9,26 s cho cùng một cấu hình 10 s). Đếm tuổi thì số đoạn giữ lại thay đổi
+            theo; đếm file thì luôn đúng N.
+
+            Mặc định 6. Với đoạn 30 s ⇒ giữ 3 phút ≈ 0,52 GB cho cả 10 camera.
+        max_age_sec: Xoá đoạn già hơn mức này. Lưới chắn thứ hai.
         max_bytes: Trần dung lượng cứng cho toàn bộ thư mục ghi. Vượt thì xoá tiếp đoạn
             già nhất, kể cả khi chúng chưa tới ``max_age_sec``. Mặc định 20 GB, chừa biên
             trong yêu cầu 50 GB.
@@ -45,11 +67,24 @@ class SweepPolicy:
             còn cần (``-35 s`` + ``delay`` 40 s, cộng biên).
     """
 
+    max_files_per_camera: int = 6
     max_age_sec: float = 30 * 60
     max_bytes: int = 20 * 1024**3
-    min_age_sec: float = 5 * 60
+    min_age_sec: float = EVIDENCE_REACH_SEC
 
     def __post_init__(self) -> None:
+        if self.max_files_per_camera < 0:
+            raise ValueError(f"max_files_per_camera không âm, nhận {self.max_files_per_camera}")
+        # Hoặc KHÔNG có sàn (0 = cố ý dọn sạch, dùng khi offline), hoặc có sàn đủ cao.
+        # Chặn đúng khoảng giữa: một con số như 30 trông như đã cân nhắc nhưng vẫn xoá mất
+        # bằng chứng, và xoá im lặng.
+        if 0 < self.min_age_sec < EVIDENCE_REACH_SEC:
+            raise ValueError(
+                f"min_age_sec ({self.min_age_sec:g}s) nằm giữa 0 và tầm với của evidenced "
+                f"({EVIDENCE_REACH_SEC:g}s) — đoạn bị xoá trước khi job cắt clip chạy tới, "
+                f"và bằng chứng biến mất mà không có gì báo.\n"
+                f"   Đặt >= {EVIDENCE_REACH_SEC:g}, hoặc đúng 0 nếu CỐ Ý dọn sạch (offline)."
+            )
         if self.min_age_sec >= self.max_age_sec:
             raise ValueError(
                 f"min_age_sec ({self.min_age_sec}) phải nhỏ hơn max_age_sec "
@@ -162,9 +197,30 @@ def sweep(
         deleted.append(path)
         freed += size
 
-    # Lượt 1 — theo TUỔI. Đây là chế độ bình thường.
+    # Lượt 0 — theo SỐ LƯỢNG. Đây là mức chính: giữ N đoạn gần nhất mỗi camera.
+    if policy.max_files_per_camera:
+        by_camera: dict[Path, list[tuple[float, Path, int]]] = {}
+        for item in entries:
+            by_camera.setdefault(item[1].parent, []).append(item)
+        for group in by_camera.values():
+            excess = len(group) - policy.max_files_per_camera
+            if excess <= 0:
+                # ⚠️ BẮT BUỘC: `group[:excess]` với excess âm cắt từ CUỐI danh sách, tức
+                # xoá đúng những đoạn đáng giữ nhất. Đã xảy ra: 4 đoạn, trần 6, và nó xoá
+                # 2 đoạn cũ nhất.
+                continue
+            for mtime, path, size in group[:excess]:  # đã sắp xếp: già nhất trước
+                if path in in_progress:
+                    continue
+                if now - mtime < policy.min_age_sec:
+                    # Sàn cứng thắng cả giới hạn số lượng: thà giữ dư đoạn còn hơn xoá mất
+                    # thứ `evidenced` sắp cần.
+                    break
+                _remove(path, size)
+
+    # Lượt 1 — theo TUỔI. Lưới chắn khi đoạn ngắn bất thường.
     for mtime, path, size in entries:
-        if path in in_progress:
+        if path in in_progress or path in deleted:
             continue
         if now - mtime <= policy.max_age_sec:
             break  # đã sắp xếp: những cái sau còn trẻ hơn

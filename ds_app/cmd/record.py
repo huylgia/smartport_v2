@@ -52,8 +52,13 @@ def _args() -> argparse.Namespace:
     )
     ap.add_argument("--out", default="/var/lib/craneops/rec")
     ap.add_argument("--duration", type=int, default=60, help="giây; 0 = chạy mãi")
-    ap.add_argument("--segment-sec", type=float, default=10.0, help="độ dài đoạn, giây")
-    ap.add_argument("--retain-sec", type=int, default=1800, help="0 = không dọn")
+    ap.add_argument("--segment-sec", type=float, default=30.0, help="độ dài đoạn, giây")
+    ap.add_argument(
+        "--keep-segments",
+        type=int,
+        default=6,
+        help="số đoạn giữ lại MỖI camera; 0 = không dọn. 6 đoạn 30 s = 3 phút",
+    )
     ap.add_argument(
         "--show-meta",
         action="store_true",
@@ -209,11 +214,14 @@ def main() -> int:
     # hiệu duy nhất đáng tin khi `async-finalize` bật.
     bus.connect("message::element", lambda _b, m: recorder.handle_bus_message(m))
 
-    if args.retain_sec > 0:
+    if args.keep_segments > 0:
+        # Giữ theo SỐ ĐOẠN, không theo tuổi: độ dài đoạn dao động theo GOP, nên đếm tuổi
+        # cho ra số đoạn khác nhau mỗi lúc. Sàn `min_age_sec` (mặc định = tầm với của
+        # evidenced) vẫn thắng nếu đoạn ngắn bất thường.
         schedule(
             GLib,
             args.out,
-            SweepPolicy(max_age_sec=args.retain_sec, min_age_sec=min(300, args.retain_sec / 2)),
+            SweepPolicy(max_files_per_camera=args.keep_segments),
             every_sec=30,
         )
 

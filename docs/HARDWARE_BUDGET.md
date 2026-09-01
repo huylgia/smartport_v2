@@ -206,7 +206,16 @@ trả về **0** trong khi cả 10 camera đang ghi.
 Đo được **21,3 Mbps = 2,66 MB/s = 9,6 GB/giờ** ở 30 fps. Nếu đặt camera về 10 fps thì
 còn khoảng **3–5 GB/giờ**.
 
-Cửa sổ evidence xa nhất là `-35 s` (camera đáy) với `delay: 40 s` ⇒ chỉ cần giữ ~5 phút.
+Cửa sổ evidence xa nhất là `-35 s` (camera đáy) với `delay: 40 s`. Job chạy ở `T+40` và
+cần dữ liệu từ `T-35`, tức dữ liệu đã **75 giây tuổi** ngay lúc đọc — đó là sàn cứng
+(`EVIDENCE_REACH_SEC` trong `ds_app/src/pipeline/sweeper.py`).
+
+Giữ **6 đoạn 30 giây = 3 phút** mỗi camera ⇒ biên 105 s trên sàn, và **~0,55 GB** cho cả
+10 camera (đo 2026-09-01: 55 MB một camera sau 4 phút chạy). Trước đây giữ 30 phút = 5,2 GB.
+
+Đếm **số đoạn** chứ không đếm tuổi: độ dài đoạn dao động theo GOP, nên đếm tuổi cho ra số
+đoạn khác nhau mỗi lúc. `SweepPolicy` từ chối mọi `min_age_sec` nằm giữa 0 và 75 s — một
+con số như 30 trông đã cân nhắc nhưng vẫn xoá mất bằng chứng.
 
 | Retention | @30 fps | @10 fps |
 |---|---:|---:|
@@ -356,6 +365,8 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Ghi hình 10 camera — mất dữ liệu | **0** overrun, **0** nghi mất khung I | `record --cam all` |
 | 2026-09-01 | dev | `kill -9` giữa đoạn — mất bao nhiêu? | **~3 s** cuối; đoạn đang mở vẫn ĐỌC ĐƯỢC | `reserved-moov-update-period-sec: 1` |
 | 2026-09-01 | dev | Đoạn dở dang có phân biệt được? | **có** — đuôi `.mp4.part`, đổi tên nguyên tử khi đóng | `splitmuxsink-fragment-closed` |
+| 2026-09-01 | dev | Giữ 6 đoạn 30 s | hội tụ đúng **6 + 1 `.part`** · **55 MB**/camera ⇒ ~0,55 GB cả cẩu | chạy 4 phút |
+| 2026-09-01 | dev | Đoạn 30 s có ra đúng 30 s? | **30,00 s** (18 GOP chẵn) | `record --segment-sec 30` |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
