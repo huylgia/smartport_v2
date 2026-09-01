@@ -85,7 +85,19 @@ cmd_record() {
     esac
   done
   require_docker
-  CAM="$cam" DUR="$dur" META="$meta" ${seg:+SEGMENT_SEC="$seg"} compose run --rm record
+  # ⚠️ KHÔNG viết `${seg:+SEGMENT_SEC="$seg"} compose ...`. Bash nhận diện phép gán biến ở
+  # thì PHÂN TÍCH CÚ PHÁP, trước khi khai triển tham số — nên chuỗi `SEGMENT_SEC=60` sinh
+  # ra *sau* khai triển bị coi là TÊN LỆNH:
+  #     craneops-ds: line 88: SEGMENT_SEC=60: command not found
+  # Lỗi chỉ hiện khi có --segment-sec; không truyền thì khai triển ra rỗng và chạy đúng.
+  #
+  # Subshell để biến không rò ra ngoài; `export` vì `compose` là hàm, và `docker` con chỉ
+  # thấy biến đã export.
+  (
+    export CAM="$cam" DUR="$dur" META="$meta"
+    if [ -n "$seg" ]; then export SEGMENT_SEC="$seg"; fi
+    compose run --rm record
+  )
 }
 
 cmd_clean() {

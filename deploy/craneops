@@ -126,7 +126,12 @@ cmd_uninstall() {
       printf '  %s✗%s %s\n' "$C_DIM" "$C_OFF" "$dest"
     fi
   done
-  [ "$removed" -gt 0 ] && note "đã gỡ $removed symlink" || note "không có gì để gỡ ở $BIN_DIR"
+  # `if` chứ không phải `A && B || C`: dạng kia chạy C khi B thất bại, tức in CẢ HAI nhánh.
+  if [ "$removed" -gt 0 ]; then
+    note "đã gỡ $removed symlink"
+  else
+    note "không có gì để gỡ ở $BIN_DIR"
+  fi
 }
 
 case "${1:-}" in

@@ -1,4 +1,6 @@
-# Phần dùng chung của bộ lệnh craneops. Được `source`, không chạy trực tiếp.
+# shellcheck shell=bash
+# Phần dùng chung của bộ lệnh craneops. Được `source`, không chạy trực tiếp — nên KHÔNG
+# có shebang; directive trên nói cho shellcheck biết shell đích.
 #
 # Shell chứ không phải Python: các lệnh này phải chạy được trên **máy đích**, nơi chỉ có
 # Docker — không venv, không `uv`, không phụ thuộc gì của dự án. Một CLI cần cài đặt trước
@@ -86,6 +88,7 @@ env_value() {
 # Lệnh riêng (bench, accuracy, record, clean) nằm ngoài hợp đồng — chúng chỉ có nghĩa với
 # một service, nên `craneops` không fan-out chúng.
 CORE_COMMANDS=(build up down status logs doctor)
+# shellcheck disable=SC2034  # dùng ở các script source file này, không dùng tại chỗ
 readonly CORE_COMMANDS
 
 # Tên lệnh của một script, mỗi dòng một cái. KHÔNG màu, KHÔNG căn lề: đây là bản cho MÁY

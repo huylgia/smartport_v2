@@ -147,6 +147,46 @@ def test_machine_readable_listing_has_no_colour_under_a_tty() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "extra", [[], ["--segment-sec", "60"], ["--meta"], ["--segment-sec", "60", "--meta"]]
+)
+def test_record_passes_optional_flags_without_a_shell_error(
+    extra: list[str], tmp_path: Path
+) -> None:
+    """Mọi tổ hợp cờ của ``record`` phải chạy tới được docker, không chết ở tầng shell.
+
+    Hồi quy cho một lỗi thật: ``${seg:+SEGMENT_SEC="$seg"} compose …``. Bash nhận diện phép
+    gán biến ở thì **phân tích cú pháp**, trước khi khai triển tham số — nên chuỗi
+    ``SEGMENT_SEC=60`` sinh ra sau khai triển bị coi là TÊN LỆNH::
+
+        craneops-ds: line 88: SEGMENT_SEC=60: command not found
+
+    Chỉ hỏng khi CÓ ``--segment-sec``; không truyền thì khai triển ra rỗng và chạy đúng, nên
+    thử một lần với cờ mặc định là không phát hiện được. Vì thế test đi qua **cả bốn** tổ hợp.
+
+    ⚠️ shellcheck KHÔNG bắt được lớp lỗi này (đã kiểm) — phải chạy thật.
+    """
+    if not (DEPLOY.parent / "build/.env.ds").exists():
+        pytest.skip("cần build/.env.ds")
+
+    # `docker` giả: nuốt mọi lệnh con và thoát 0, nên test không cần Docker lẫn RTSP.
+    stub = tmp_path / "docker"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$*"\nexit 0\n')
+    stub.chmod(0o755)
+
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"}
+    done = subprocess.run(  # noqa: S603
+        [str(DEPLOY / "craneops-ds"), "record", "--cam", "2", "--duration", "1", *extra],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    output = done.stdout + done.stderr
+    assert "command not found" not in output, f"lỗi shell với cờ {extra}:\n{output}"
+    assert done.returncode == 0, f"cờ {extra} làm record thoát {done.returncode}:\n{output}"
+
+
 def test_unknown_command_fails_loudly() -> None:
     """Gõ sai lệnh phải thoát khác 0 — im lặng không làm gì là cách hỏng tệ nhất."""
     for script in ("craneops", "craneops-triton", "craneops-ds"):

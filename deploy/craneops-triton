@@ -56,8 +56,11 @@ cmd_doctor() {
     else row "❌ $1" "$3" 26; bad=1; fi
   }
 
-  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
-    && check "docker" "chạy được" "" || check "docker" "" "không chạy được (thiếu quyền?)"
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    check "docker" "chạy được" ""
+  else
+    check "docker" "" "không chạy được (thiếu quyền?)"
+  fi
 
   if [ -f "$CRANEOPS_ROOT/$ENV_FILE" ]; then
     check "$ENV_FILE" "có" ""
