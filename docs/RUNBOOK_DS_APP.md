@@ -193,7 +193,51 @@ config sẽ **im lặng** không xử lý camera ấy.
 [HARDWARE_BUDGET.md](HARDWARE_BUDGET.md) §2.2 — vượt trần thì **mọi** camera cùng tụt fps,
 không phải camera mới bị bỏ. Camera chỉ để ghi hình thì đặt vai trò `evidence_only`.
 
-### 4.2 Mã camera suy từ URL, không khai
+### 4.2 Kiểm nhánh ghi có mất dữ liệu không
+
+`record` báo ở cuối mỗi lần chạy và **thoát khác 0** nếu có mất:
+
+```
+✅ không mất dữ liệu (0 lần hàng đợi đầy, 0 nghi mất khung I)
+```
+
+Hai phép dò đo hai thứ khác nhau, cố ý:
+
+| | Đo gì | Bắt được |
+|---|---|---|
+| `overrun` của hàng đợi ghi | **nguyên nhân** — hàng đợi đầy nên đã vứt buffer | đúng nguyên nhân đó |
+| khoảng cách keyframe > 1,5 lần GOP | **kết quả** — đã mất một khung I | mọi nguyên nhân |
+
+Cần cả hai: mất một khung I là mất cả GOP theo sau (~1,7 s hình), và **file vẫn được tạo,
+vẫn mở được** — không có gì báo nếu không đo.
+
+#### Dựng nghẽn để kiểm bộ dò
+
+⚠️ **Đừng bóp băng thông đĩa trên máy dùng chung.** Bóp nhỏ hàng đợi cũng không tạo được
+nghẽn — hàng đợi chỉ đầy khi phía **sau** chậm hơn phía trước, mà đĩa thì không chậm.
+
+Dùng pipeline tổng hợp, chạy trong container, không chạm đĩa lẫn camera:
+
+```bash
+docker compose --env-file build/.env.ds -f build/docker-compose.ds.yml run --rm \
+  --entrypoint python3 doctor -c '
+import gi; gi.require_version("Gst","1.0")
+from gi.repository import GLib, Gst
+Gst.init(None)
+p = Gst.parse_launch(
+  "videotestsrc is-live=true ! video/x-raw,framerate=60/1 "
+  "! queue name=q leaky=1 max-size-buffers=2 max-size-time=0 max-size-bytes=0 "
+  "! identity sleep-time=50000 ! fakesink sync=false")
+n=[0]; p.get_by_name("q").connect("overrun", lambda _q: n.__setitem__(0,n[0]+1))
+p.set_state(Gst.State.PLAYING)
+l=GLib.MainLoop(); GLib.timeout_add_seconds(5, lambda:(l.quit(),False)[1]); l.run()
+print("overrun:", n[0])'
+```
+
+Nguồn nhanh (60 fps) → hàng đợi 2 buffer → sink cố ý ngủ 50 ms mỗi buffer. Đo được
+**225 lần overrun trong 5 giây** — tín hiệu nối đúng.
+
+### 4.3 Mã camera suy từ URL, không khai
 
 Định danh là `<mã cẩu>_<ip>_<cổng>`, ví dụ `GC03_113_160_225_15_1508`. Nó là tên thư mục
 ghi hình và là trường `camera_code` trong message, nên hai thứ đó không thể trôi khỏi nhau.
@@ -362,7 +406,7 @@ URL lấy từ định dạng phân tách mà quên dừng ở dấu phân tách
 ### `mã camera trùng nhau: [...]`
 
 Hai camera cùng host **và** cùng cổng, hoặc URL thiếu cổng. Để nguyên thì dữ liệu của camera
-này bị gán cho camera kia mà không có gì báo. Xem §4.2.
+này bị gán cho camera kia mà không có gì báo. Xem §4.3.
 
 ### `[record] <cam>: bỏ buffer không có PTS`
 

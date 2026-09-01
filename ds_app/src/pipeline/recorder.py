@@ -20,6 +20,7 @@ và giữ lại cho các callback. Nhờ vậy nó nạp và test được trên
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import statistics
 from pathlib import Path
@@ -29,6 +30,43 @@ from ds_app.src.pipeline.elements import MUXER, RECORD_QUEUE, SPLITMUX, apply_pr
 from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
 
 __all__ = ["RecordingBranch"]
+
+
+@dataclasses.dataclass
+class RecordLoss:
+    """Bằng chứng nhánh ghi đã mất dữ liệu, đếm theo từng camera.
+
+    Tồn tại vì mất mát ở nhánh ghi **không tự lộ ra**: file vẫn được tạo, vẫn mở được,
+    chỉ thiếu hình ở giữa. Ai đó đi tìm bằng chứng cho một sự kiện sẽ phát hiện điều đó
+    vài ngày sau, và lúc ấy không còn gì để truy.
+
+    Hai nguồn số liệu đo hai thứ khác nhau, cố ý:
+
+    * :attr:`overruns` — hàng đợi ghi báo ĐẦY, tức nó vừa vứt buffer. Bằng chứng trực tiếp
+      về **nguyên nhân**, nhưng chỉ bắt được đúng nguyên nhân đó.
+    * :attr:`keyframe_gaps` — hai keyframe cách nhau xa hơn GOP. Đo **kết quả**, nên bắt
+      được mọi nguyên nhân: mất gói, hàng đợi xả, muxer nghẽn, camera trục trặc.
+    """
+
+    overruns: dict[str, int] = dataclasses.field(default_factory=dict)
+    keyframe_gaps: dict[str, int] = dataclasses.field(default_factory=dict)
+
+    @property
+    def clean(self) -> bool:
+        return not self.overruns and not self.keyframe_gaps
+
+    def report(self) -> list[str]:
+        """Dòng báo cho từng camera có vấn đề. Rỗng = không mất gì."""
+        out = []
+        for code in sorted(set(self.overruns) | set(self.keyframe_gaps)):
+            parts = []
+            if n := self.overruns.get(code):
+                parts.append(f"{n} lần hàng đợi ghi đầy (đã vứt buffer)")
+            if n := self.keyframe_gaps.get(code):
+                parts.append(f"{n} lần nghi mất khung I")
+            out.append(f"{code}: " + ", ".join(parts))
+        return out
+
 
 _GOP_SAMPLES = 3
 """Số khoảng keyframe lấy mẫu trước khi báo GOP. Khoảng đầu tiên sau khi kết nối là khoảng
@@ -92,6 +130,8 @@ class RecordingBranch:
         self._last_keyframe: dict[str, float] = {}
         self._gop_gaps: dict[str, list[float]] = {}
         self._gop_reported: set[str] = set()
+        self._gop: dict[str, float] = {}
+        self._loss = RecordLoss()
 
     # ------------------------------------------------------------------ gắn vào
     def attach(self, Gst: Any, source_bin: Any, camera_code: str) -> None:
@@ -131,6 +171,10 @@ class RecordingBranch:
 
         queue = make(Gst, "queue", f"queue_record_{camera_code}")
         apply_props(queue, RECORD_QUEUE)
+        # `overrun` báo hàng đợi ĐẦY. Với queue có `leaky`, đầy nghĩa là nó vừa vứt một
+        # buffer — bằng chứng TRỰC TIẾP rằng nhánh ghi vừa mất dữ liệu. Không bắt tín hiệu
+        # này thì mất mát hoàn toàn im lặng: file vẫn ra, vẫn mở được, chỉ thiếu hình.
+        queue.connect("overrun", self._on_overrun, camera_code)
 
         sink = make(Gst, "splitmuxsink", f"splitmuxsink_{camera_code}")
         apply_props(sink, SPLITMUX)
@@ -158,6 +202,11 @@ class RecordingBranch:
 
         sink.connect("format-location-full", self._on_new_fragment, camera_code)
 
+    @property
+    def loss(self) -> RecordLoss:
+        """Thống kê mất mát. Kiểm nó sau mỗi lần chạy — sạch không phải là mặc định."""
+        return self._loss
+
     # ------------------------------------------------------------------ probe
     def _drop_pts_less(self, _pad: Any, info: Any, camera_code: str) -> Any:
         """Bỏ buffer không có PTS, và nhân tiện đo GOP.
@@ -182,6 +231,29 @@ class RecordingBranch:
             )
         return Gst.PadProbeReturn.DROP
 
+    def _on_overrun(self, _queue: Any, camera_code: str) -> None:
+        self._loss.overruns[camera_code] = self._loss.overruns.get(camera_code, 0) + 1
+
+    def _check_keyframe_gap(self, camera_code: str, gap: float) -> None:
+        """Khoảng cách giữa hai keyframe vượt xa GOP đã học ⇒ đã mất một keyframe.
+
+        Đây là phép dò chịu được mọi nguyên nhân — mất gói, hàng đợi xả, muxer nghẽn — vì
+        nó đo **kết quả** chứ không đo một cơ chế cụ thể. Mất một khung I là mất cả GOP
+        theo sau nó, tức tới 1,7 s hình không dựng lại được.
+        """
+        gop = self._gop.get(camera_code)
+        if gop is None or gop <= 0:
+            return
+        # Ngưỡng 1,5 lần: GOP dao động thật (đo được 1,00 và 1,67 s ở hai lần chạy), nên
+        # ngưỡng sát quá sẽ báo động giả. 1,5 lần thì chỉ khớp khi đã nhảy hẳn một chu kỳ.
+        if gap > gop * 1.5:
+            self._loss.keyframe_gaps[camera_code] = self._loss.keyframe_gaps.get(camera_code, 0) + 1
+            print(  # noqa: T201
+                f"[record] ⚠️ {camera_code}: hai keyframe cách {gap:.2f}s, GOP là "
+                f"{gop:.2f}s — nhiều khả năng MẤT một khung I (mất tới {gap:.1f}s hình)",
+                flush=True,
+            )
+
     def _sample_gop(self, Gst: Any, buf: Any, camera_code: str) -> None:
         """Báo GOP thật của nguồn, một lần cho mỗi camera.
 
@@ -189,8 +261,6 @@ class RecordingBranch:
         ``độ dài thật = ceil(giới hạn / GOP) lần GOP``. ``evidenced`` tính cửa sổ theo độ
         dài thật, nên con số này phải đo chứ không giả định.
         """
-        if camera_code in self._gop_reported:
-            return
         if buf.mini_object.flags & Gst.BufferFlags.DELTA_UNIT:
             return  # không phải keyframe
 
@@ -199,13 +269,21 @@ class RecordingBranch:
         self._last_keyframe[camera_code] = pts_sec
         if previous is None:
             return
+        gap = pts_sec - previous
+
+        # Dò MÃI, không chỉ trong lúc học GOP: mất keyframe là chuyện xảy ra bất kỳ lúc nào,
+        # thường lúc đĩa hoặc mạng nghẽn — tức muộn hơn nhiều so với vài giây đầu.
+        self._check_keyframe_gap(camera_code, gap)
+        if camera_code in self._gop_reported:
+            return
 
         gaps = self._gop_gaps.setdefault(camera_code, [])
-        gaps.append(pts_sec - previous)
+        gaps.append(gap)
         if len(gaps) < _GOP_SAMPLES:
             return
 
         gop = statistics.median(gaps)
+        self._gop[camera_code] = gop
         self._gop_reported.add(camera_code)
         limit = self._segment_sec
         real = gop if gop >= limit else (int(limit / gop) + (limit % gop > 0)) * gop

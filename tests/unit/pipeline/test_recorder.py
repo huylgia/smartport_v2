@@ -128,7 +128,7 @@ def test_record_queue_leaks_rather_than_blocks(gst: Any, tmp_path: Path) -> None
     _, bin_ = _attach(gst, tmp_path)
     q = bin_.get_by_name("queue_record_1")
 
-    assert q.props["leaky"] == RECORD_QUEUE["leaky"] == 2
+    assert q.props["leaky"] == RECORD_QUEUE["leaky"] == 1
     assert q.props["max-size-time"] == RECORD_QUEUE["max-size-time"]
     assert q.props["max-size-buffers"] == 0, "chặn theo thời gian, không theo số buffer"
 
@@ -370,3 +370,64 @@ def test_configured_length_reaches_the_fragment_index(gst: Any, tmp_path: Path) 
 def test_zero_segment_length_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="phải dương"):
         RecordingBranch(tmp_path, segment_sec=0)
+
+
+# ---------------------------------------------------------------- phát hiện mất dữ liệu
+
+
+def test_record_queue_drops_new_buffers_not_old() -> None:
+    """``leaky=1`` (upstream) cho nhánh ghi, KHÔNG phải ``2``.
+
+    ``leaky=2`` vứt buffer **cũ**, tức có thể cắt mất khung I đang nằm ở đầu hàng đợi — và
+    mất khung I là mất cả GOP theo sau, tới ~1,7 s hình không dựng lại được. Vứt buffer
+    **mới** thì chuỗi tham chiếu đã xếp hàng còn nguyên, ta chỉ mất phần đuôi, và phần đuôi
+    tự lành ở keyframe kế tiếp.
+    """
+    from ds_app.src.pipeline.elements import NVURISRCBIN, RECORD_QUEUE
+
+    assert RECORD_QUEUE["leaky"] == 1, "nhánh ghi phải vứt buffer MỚI"
+    assert NVURISRCBIN["leaky"] == 2, (
+        "nhánh decode thì ngược lại: bỏ khung suy luận cũ chấp nhận được, "
+        "vì không có chuỗi bằng chứng nào phải giữ nguyên"
+    )
+
+
+def test_overrun_is_wired_to_the_record_queue(gst: Any, tmp_path: Path) -> None:
+    """Hàng đợi ghi báo ĐẦY nghĩa là nó vừa vứt buffer — phải đếm, không được bỏ qua.
+
+    Không bắt tín hiệu này thì mất mát hoàn toàn im lặng: file vẫn ra, vẫn mở được, chỉ
+    thiếu hình ở giữa. Ai đó đi tìm bằng chứng sẽ phát hiện vài ngày sau.
+    """
+    branch, bin_ = _attach(gst, tmp_path)
+    queue = bin_.get_by_name("queue_record_1")
+    assert "overrun" in queue.signals, "không nối `overrun` — mất dữ liệu sẽ im lặng"
+
+    assert branch.loss.overruns == {}
+    queue.emit("overrun")
+    queue.emit("overrun")
+    assert branch.loss.overruns == {"1": 2}
+    assert branch.loss.clean is False
+    assert "2 lần hàng đợi ghi đầy" in branch.loss.report()[0]
+
+
+def test_keyframe_gap_flags_a_lost_i_frame(gst: Any, tmp_path: Path) -> None:
+    """Hai keyframe cách xa hơn GOP đã học ⇒ đã mất một khung I.
+
+    Đo **kết quả** chứ không đo một cơ chế, nên bắt được mọi nguyên nhân: mất gói, hàng đợi
+    xả, muxer nghẽn, camera trục trặc.
+    """
+    branch, _ = _attach(gst, tmp_path)
+    branch._gop["1"] = 1.67
+
+    branch._check_keyframe_gap("1", 1.70)  # dao động bình thường
+    assert branch.loss.clean, "GOP dao động thật — ngưỡng sát quá sẽ báo động giả"
+
+    branch._check_keyframe_gap("1", 3.34)  # nhảy hẳn một chu kỳ
+    assert branch.loss.keyframe_gaps["1"] == 1
+
+
+def test_keyframe_gap_is_silent_before_the_gop_is_known(gst: Any, tmp_path: Path) -> None:
+    """Chưa học được GOP thì không có gì để so — đừng đoán bừa."""
+    branch, _ = _attach(gst, tmp_path)
+    branch._check_keyframe_gap("1", 99.0)
+    assert branch.loss.clean

@@ -253,7 +253,17 @@ def main() -> int:
         # Một camera không ra file nào giữa lúc các camera khác vẫn ghi là hỏng RIÊNG nó —
         # loại lỗi mà tổng dung lượng che mất.
         print(f"  ⚠️  {len(silent)} camera KHÔNG ghi được đoạn nào: {silent}")  # noqa: T201
-    return 1 if errors or silent else 0
+
+    # Mất dữ liệu ở nhánh ghi KHÔNG tự lộ ra: file vẫn được tạo, vẫn mở được, chỉ thiếu
+    # hình ở giữa. Báo ra đây và thoát khác 0 để nó không đi qua im lặng.
+    loss = recorder.loss
+    if loss.clean:
+        print("  ✅ không mất dữ liệu (0 lần hàng đợi đầy, 0 nghi mất khung I)")  # noqa: T201
+    else:
+        print("\n  ⚠️  MẤT DỮ LIỆU Ở NHÁNH GHI:")  # noqa: T201
+        for line in loss.report():
+            print(f"    {line}")  # noqa: T201
+    return 1 if errors or silent or not loss.clean else 0
 
 
 if __name__ == "__main__":

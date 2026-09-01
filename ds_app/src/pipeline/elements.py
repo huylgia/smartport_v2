@@ -72,10 +72,18 @@ RECORD_QUEUE: dict[str, Any] = {
     "max-size-buffers": 0,
     "max-size-time": 30_000_000_000,  # 30 s video đã nén
     "max-size-bytes": 67_108_864,  # 64 MiB
-    # 2 = downstream. Nhánh ghi xả SAU CÙNG: mất một khung P làm nhoè hình tới tận keyframe
-    # kế tiếp. Nhưng chặn còn tệ hơn — tee đẩy tuần tự, nên nhánh ghi đứng là nhánh model
-    # đứng theo.
-    "leaky": 2,
+    # 1 = upstream: vứt buffer MỚI, giữ nguyên phần đã xếp hàng.
+    #
+    # ⚠️ Khác nhánh decode, chỗ này KHÔNG dùng 2 (downstream). `leaky=2` vứt buffer CŨ,
+    # tức có thể cắt mất khung I đang nằm ở đầu hàng đợi — và mất khung I là mất cả GOP
+    # theo sau nó, tới ~1,7 s hình không dựng lại được. Vứt buffer mới thì chuỗi tham chiếu
+    # đã xếp hàng còn nguyên; ta chỉ mất phần đuôi, và phần đuôi tự lành ở keyframe kế tiếp.
+    #
+    # Vẫn phải xả chứ không chặn: tee đẩy tuần tự, nên nhánh ghi đứng là nhánh model đứng
+    # theo. Với bộ đệm hữu hạn thì chỉ chọn được một trong hai — "không bao giờ đứng" hoặc
+    # "không bao giờ mất". Chọn vế đầu, và ĐẾM phần mất (RecordingBranch.loss) để nó không
+    # im lặng.
+    "leaky": 1,
 }
 """Hàng đợi của nhánh ghi, cắm vào ``tee_rtsp_pre_decode``."""
 

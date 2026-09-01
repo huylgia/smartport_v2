@@ -352,6 +352,8 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Ghi hình 10 camera — đĩa | **10,4 GB/giờ** cả cẩu | §6.3 |
 | 2026-09-01 | dev | ⚠️ Nối `fakesink` vào src pad | NVDEC **0 % → 11,6 %** (decode 10 luồng để vứt) | §6.3 |
 | 2026-09-01 | dev | `model_fps: 5` có thực thi không? | **có** — 5,0 fps vào probe, so với 27,5 fps khi không đặt | đếm `frame_num` |
+| 2026-09-01 | dev | Tín hiệu `overrun` có nối đúng? | **có** — 225 lần/5 s khi sink cố ý chậm | RUNBOOK_DS_APP §4.2 |
+| 2026-09-01 | dev | Ghi hình 10 camera — mất dữ liệu | **0** overrun, **0** nghi mất khung I | `record --cam all` |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
