@@ -92,6 +92,9 @@ non-reference nào để bỏ qua.
 `drop-frame-interval` vì thế chỉ **vứt output sau khi đã giải mã**. Nó tiết kiệm
 `nvstreammux`, inference, và copy buffer — **không** tiết kiệm NVDEC.
 
+Điều đó không có nghĩa là bỏ nó đi: NVDEC không phải nút thắt duy nhất, và phần phía sau
+decoder giảm đúng 6 lần khi hạ 30 fps xuống 5. Cấu hình qua `model_fps` — xem §2.7.
+
 Lựa chọn duy nhất bỏ được decode thật là `skip-frames=2` (chỉ giải mã I-frame), nhưng
 GOP 50 @ 30 fps ⇒ **0,6 fps**, trong khi rule chậm nhất (`tcode`) cũng cần 2 fps. Không
 dùng được.
@@ -232,17 +235,26 @@ Suy từ nhịp mà mỗi vai trò thực sự cần, không phải suy đoán:
 | bottom | 9 | — | **không decode** |
 | evidence-only | 2 | — | **không decode** |
 
-⚠️ **Các con số này KHÔNG được thực thi ở decoder.** `ds_app` cố ý không đặt
-`drop-frame-interval`: §2.2 đã chứng minh nó không giảm tải NVDEC (nguồn IPPP, GOP 50,
-không khung B ⇒ mọi khung đều phải giải mã, nó chỉ vứt output *sau đó*). Đặt nó là trả giá
-— mất khung cho suy luận — mà không được gì ở chỗ nghẽn thật.
+Các con số này thực thi ở **decoder**, qua `model_fps` trong `configs/cranes/*.yaml`:
+ds_app quy nó ra `drop-frame-interval` (§2.2). Chỉ camera chạy model mới khai.
 
-Giảm nhịp thuộc về tầng nghiệp vụ, nơi nó tiết kiệm thứ đo được: **số request gửi Triton**.
-Decoder chạy ở fps nguồn; probe/rule quyết định khung nào đáng gửi đi.
+⚠️ **Nó KHÔNG giảm tải NVDEC** — §2.2 đã chứng minh: nguồn IPPP nên mọi khung vẫn phải
+giải mã, cái này chỉ vứt output *sau đó*. Nhưng NVDEC không phải nút thắt duy nhất, và
+đây là chỗ **sớm nhất** bỏ được khung:
 
-Hệ quả cho ngân sách Triton: nếu không giảm nhịp ở đâu cả, tải suy luận là fps **nguồn**
-(30) chứ không phải fps mục tiêu (5) — gấp 6 lần. Trần đo được là 1 137 req/s (§6.1) nên
-vẫn còn biên, nhưng biên đó phải được đo lại trên RTX 3060 trước khi tin.
+| Bỏ khung ở | Cắt được |
+|---|---|
+| **decoder** (`drop-frame-interval`) | nvstreammux, copy buffer, nvinferserver, probe, Kafka |
+| probe trên src pad của mux | nvinferserver, Kafka — khung đã gộp batch và copy rồi |
+| tầng rule (sau Kafka) | không gì trong ds_app |
+
+Không giảm nhịp ở đâu cả thì tải suy luận là fps **nguồn** (30) chứ không phải fps mục
+tiêu (5) — **gấp 6 lần**. Trần đo được 1 137 req/s (§6.1) là trên RTX 5090; trên 3060 nó
+thấp hơn nhiều và chưa đo.
+
+Giảm nhịp ở decoder là **trần tĩnh**. Cổng động (chỉ chạy suy luận khi lane có xe, theo
+`lane_active` của `CRANE01`) là tầng thứ hai chồng lên, không thay thế — nó tiết kiệm thêm
+ở lúc dưới cẩu trống, nhưng không cắt được phần muxing/copy.
 
 ---
 
@@ -318,7 +330,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-08-29 | dev | Nguồn RTSP GC03 | **10 × 2688×1520 @ 30 fps HEVC** | `ffmpeg -c copy`, 15 s/cam |
 | 2026-08-29 | dev | Tổng bitrate | **21,3 Mbps = 9,6 GB/giờ** | như trên |
 | 2026-08-29 | dev | Cấu trúc GOP | **GOP 50, IPPP, 0 khung B** (1 500 khung, 10 cam) | `ffprobe -show_entries frame=pict_type` |
-| 2026-08-29 | — | `drop-frame-interval` giảm tải NVDEC? | **KHÔNG** — suy ra từ GOP không có khung B | §2.2 |
+| 2026-08-29 | — | `drop-frame-interval` giảm tải NVDEC? | **KHÔNG** (nhưng cắt 6× tải phía sau decoder) | §2.2 |
 | 2026-08-29 | dev | Sub-stream khả dụng | **chỉ 640×360** (`h264/ch1/sub/av_stream`); không có 1280×720 | dò 13 đường dẫn RTSP |
 | 2026-08-29 | dev | Tải decode v2 cơ sở (8 luồng main) | **981 Mpixel/s = 3,9× 4K30 = 16× 1080p30** | tính từ số đo |
 | 2026-08-29 | dev | VPS/SPS/PPS đầu kết nối | **KHÔNG có** ⇒ cần `config-interval=-1` | `ffprobe` báo lỗi mp4 |
@@ -339,6 +351,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Ghi hình 10 camera — RAM container | **313 MiB** / 6 GiB, 131 luồng | §6.3 |
 | 2026-09-01 | dev | Ghi hình 10 camera — đĩa | **10,4 GB/giờ** cả cẩu | §6.3 |
 | 2026-09-01 | dev | ⚠️ Nối `fakesink` vào src pad | NVDEC **0 % → 11,6 %** (decode 10 luồng để vứt) | §6.3 |
+| 2026-09-01 | dev | `model_fps: 5` có thực thi không? | **có** — 5,0 fps vào probe, so với 27,5 fps khi không đặt | đếm `frame_num` |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---

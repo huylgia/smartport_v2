@@ -280,14 +280,57 @@ def test_desc_is_optional() -> None:
     assert cam.desc == ""
 
 
-def test_no_fps_knob_remains() -> None:
-    """Không còn núm chỉnh fps: decimate ở decoder KHÔNG tiết kiệm NVDEC.
+def test_model_fps_becomes_a_decoder_divisor() -> None:
+    """``model_fps`` là nhịp rule CẦN; ds_app quy ra ``drop-frame-interval``.
 
-    Nguồn là IPPP, GOP 50, không khung B — mọi khung đều phải giải mã, ``drop-frame-interval``
-    chỉ vứt output SAU đó. Giảm nhịp là việc của tầng nghiệp vụ. Xem HARDWARE_BUDGET §2.2.
+    Số mặc định theo HARDWARE_BUDGET §2.7. Property của decoder có nghĩa "giữ 1 khung mỗi
+    N khung", nên N = fps nguồn / fps mục tiêu.
     """
-    assert not hasattr(CameraConfig, "keep_interval")
-    assert "drop_frame_interval" not in CameraConfig.model_fields
+    for role, want, n in (
+        (CameraRole.CCODE, 5.0, 6),
+        (CameraRole.CRANE, 3.3, 9),
+        (CameraRole.TCODE, 2.0, 15),
+    ):
+        cam = CameraConfig(role=role, stream="rtsp://h:1/s", source_fps=30.0, model_fps=want)
+        assert cam.drop_frame_interval == n
+        assert abs(cam.effective_fps - want) < 0.05
+
+
+def test_no_decimation_by_default() -> None:
+    """Không khai thì giữ nguyên fps nguồn — decoder không bỏ khung nào."""
+    cam = CameraConfig(role=CameraRole.CCODE, stream="rtsp://h:1/s", source_fps=30.0)
+    assert cam.drop_frame_interval == 0
+    assert cam.effective_fps == 30.0
+
+
+def test_effective_fps_shows_the_rounding() -> None:
+    """Chia rồi làm tròn nên nhịp thật hiếm khi đúng bằng ``model_fps`` — phải nhìn thấy được."""
+    cam = CameraConfig(role=CameraRole.CCODE, stream="rtsp://h:1/s", source_fps=30.0, model_fps=7.0)
+    assert cam.drop_frame_interval == 4, "30/7 = 4,3 → làm tròn 4"
+    assert cam.effective_fps == 7.5, "không phải 7,0 — đó là lý do có effective_fps"
+
+
+def test_model_fps_on_a_camera_that_never_decodes_is_rejected() -> None:
+    """Nhánh decode của camera chỉ-ghi-hình không ai kéo; đặt nhịp cho nó là vô nghĩa."""
+    with pytest.raises(ValueError, match="không chạy model"):
+        CameraConfig(role=CameraRole.BOTTOM, stream="rtsp://h:1/s", model_fps=5.0)
+
+
+def test_model_fps_above_the_source_is_rejected() -> None:
+    with pytest.raises(ValueError, match="lớn hơn fps nguồn"):
+        CameraConfig(role=CameraRole.CCODE, stream="rtsp://h:1/s", source_fps=30.0, model_fps=60.0)
+
+
+def test_shipped_config_decimates_every_model_camera() -> None:
+    """Không đặt thì tải suy luận là fps NGUỒN — gấp 6 lần fps mục tiêu (§2.2)."""
+    cfg = load_crane(GC03, env={})
+    for cam in cfg.model_cameras:
+        assert cam.model_fps is not None, f"{cam.key} chạy model mà không giảm nhịp"
+        assert cam.drop_frame_interval > 1
+    decoding = {c.key for c in cfg.model_cameras}
+    for cam in cfg.record_cameras:
+        if cam.key not in decoding:
+            assert cam.model_fps is None, f"{cam.key} chỉ ghi hình mà khai model_fps"
 
 
 def test_no_hand_allocated_id_remains() -> None:

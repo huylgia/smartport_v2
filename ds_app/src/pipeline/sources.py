@@ -106,12 +106,15 @@ def make_source_bin(Gst: Any, index: int, camera: CameraConfig) -> Any:
     src.set_property("uri", uri)
     apply_props(src, NVURISRCBIN)
 
-    # ⚠️ CỐ Ý không đặt `drop-frame-interval`. Nó KHÔNG giảm tải NVDEC: nguồn là IPPP,
-    # GOP 50, không một khung B nào (đo 2026-08-29), nên mọi khung đều phải giải mã — nó
-    # chỉ vứt output SAU khi đã giải mã. Xem docs/HARDWARE_BUDGET.md §2.2.
+    # Giảm nhịp cho nhánh model. KHÔNG giảm tải NVDEC — nguồn là IPPP, GOP 50, không một
+    # khung B nào (đo 2026-08-29), nên mọi khung vẫn phải giải mã và cái này chỉ vứt output
+    # SAU đó. Nhưng NVDEC không phải nút thắt duy nhất: nó cắt 6 lần công việc ở
+    # nvstreammux, copy buffer, nvinferserver, probe và Kafka. Xem HARDWARE_BUDGET §2.2.
     #
-    # Giảm nhịp là việc của tầng nghiệp vụ, ở chỗ nó thật sự tiết kiệm được (số request gửi
-    # Triton), không phải ở decoder.
+    # Đặt ở decoder chứ không ở probe vì đây là chỗ SỚM NHẤT bỏ được khung: probe chỉ cứu
+    # được phần suy luận, khung đã bị gộp batch và copy rồi.
+    if camera.drop_frame_interval:
+        src.set_property("drop-frame-interval", camera.drop_frame_interval)
 
     ghost = Gst.GhostPad.new_no_target("src", Gst.PadDirection.SRC)
     bin_.add_pad(ghost)

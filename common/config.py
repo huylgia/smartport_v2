@@ -219,6 +219,20 @@ class CameraConfig(BaseModel):
         """
         return f"{self.role.value}{self.index}"
 
+    model_fps: float | None = Field(default=None, gt=0.0)
+    """Nhịp khung đưa vào nhánh model. ``None`` = giữ nguyên fps nguồn.
+
+    Đây là nhịp mà **rule cần** (HARDWARE_BUDGET §2.7), không phải nhịp nguồn. ds_app quy
+    ra ``drop-frame-interval`` của decoder — xem :attr:`drop_frame_interval`.
+
+    ⚠️ **Không giảm được tải NVDEC.** Nguồn là IPPP nên mọi khung vẫn phải giải mã; cái
+    này vứt output *sau* decode. Thứ nó tiết kiệm là mọi thứ phía sau: gộp batch ở
+    ``nvstreammux``, copy buffer, request gửi Triton, công việc trong probe, message lên
+    Kafka. Không đặt thì tải suy luận là fps **nguồn** (30) chứ không phải fps mục tiêu
+    (5) — gấp 6 lần, và trần Triton mới chỉ đo trên máy dev.
+
+    Không đặt cho camera không chạy model: nhánh decode của chúng không ai kéo."""
+
     ocr_rois: list[OcrRoi] = Field(default_factory=list)
     """Vùng OCR tĩnh. Chỉ camera ``ccode``.
 
@@ -226,8 +240,42 @@ class CameraConfig(BaseModel):
     (``configs/rules/<cẩu>/``), ds_app không đọc nó. Khác nhau ở chỗ: vùng OCR quyết định
     ds_app cắt gì đưa cho Triton, còn vùng làn chỉ dùng để suy ra xe đang ở làn nào."""
 
+    @property
+    def drop_frame_interval(self) -> int:
+        """Giá trị ``drop-frame-interval`` cho decoder. ``0`` = không bỏ khung nào.
+
+        Ngữ nghĩa của property (đọc từ chính element): ``N`` nghĩa là **giữ 1 khung mỗi N
+        khung**. Nên chia fps nguồn cho fps mục tiêu, làm tròn.
+
+        Làm tròn nghĩa là nhịp thật hiếm khi đúng bằng ``model_fps``:
+        :attr:`effective_fps` cho số thật, và ds_app in nó ra lúc dựng pipeline để chênh
+        lệch nhìn thấy được thay vì âm thầm.
+        """
+        if self.model_fps is None or self.source_fps <= 0:
+            return 0
+        return max(1, round(self.source_fps / self.model_fps))
+
+    @property
+    def effective_fps(self) -> float:
+        """Nhịp THẬT sau khi làm tròn. Bằng fps nguồn nếu không giảm nhịp."""
+        n = self.drop_frame_interval
+        return self.source_fps if n <= 1 else self.source_fps / n
+
+    source_fps: float = Field(default=0.0, ge=0.0)
+    """fps của nguồn, **bơm xuống** từ :class:`CraneConfig` — không khai trong thân."""
+
     @model_validator(mode="after")
     def _role_consistency(self) -> CameraConfig:
+        if self.model_fps is not None and not self.decodes:
+            raise ValueError(
+                f"camera {self.key!r} vai trò {self.role} không chạy model nhưng khai "
+                f"model_fps — nhánh decode của nó không ai kéo, đặt gì cũng vô nghĩa"
+            )
+        if self.model_fps is not None and self.source_fps and self.model_fps > self.source_fps:
+            raise ValueError(
+                f"camera {self.key!r}: model_fps={self.model_fps} lớn hơn fps nguồn "
+                f"({self.source_fps}) — không tạo thêm khung được"
+            )
         if self.ocr_rois and self.role is not CameraRole.CCODE:
             raise ValueError(
                 f"camera {self.key!r} vai trò {self.role} nhưng khai ocr_rois; "
@@ -252,6 +300,16 @@ class CraneConfig(BaseModel):
     crane_id: str = Field(min_length=1)
     berth_no: str = Field(min_length=1)
     num_lane: int = Field(ge=1, le=9)
+    source_fps: float = Field(default=30.0, gt=0.0)
+    """fps của **nguồn**, đo được — dùng để quy ``model_fps`` ra ``drop-frame-interval``.
+
+    Không dò được lúc dựng pipeline: ``drop-frame-interval`` chỉ đặt được ở trạng thái
+    NULL/READY, tức trước khi thương lượng caps. Nên phải khai, và ds_app **đối chiếu lại**
+    khi caps về — lệch thì báo, không để nhịp thật âm thầm khác nhịp đã tính.
+
+    Đo 2026-08-29: cả 10 camera GC03 là 30 fps (HARDWARE_BUDGET §6).
+    """
+
     rtsp_credential: str = ""
     """``user:pass`` dùng chung cho mọi camera của cẩu, **lấy từ env lúc load**.
 
@@ -295,6 +353,7 @@ class CraneConfig(BaseModel):
                         cam["role"] = role
                         cam["index"] = i
                         cam["credential"] = data.get("rtsp_credential", "")
+                        cam["source_fps"] = data.get("source_fps", 30.0)
         return data
 
     @model_validator(mode="after")

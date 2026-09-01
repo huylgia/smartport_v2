@@ -41,6 +41,7 @@
 crane_id: GC03
 berth_no: TS03 # mã bến, dùng để đối chiếu manifest Oracle
 num_lane: 3
+source_fps: 30 # đo 2026-08-29, cả 10 camera; ds_app đối chiếu lại lúc chạy
 
 cameras:
   # --- nhận dạng mã container -------------------------------
@@ -48,11 +49,11 @@ cameras:
   # vào batch, không phải sửa code.
   ccode:
     # TODO ocr_rois: 8 vùng OCR tĩnh (xem docs/ARCHITECTURE.md)
-    - {code: GC03_113_160_225_15_1508, stream: rtsp://113.160.225.15:1508//CH001.sdp, desc: Mặt phải trước}
-    - {code: GC03_113_160_225_15_1511, stream: rtsp://113.160.225.15:1511//CH001.sdp, desc: Mặt trước - Lane 2}
-    - {code: GC03_113_160_225_15_1513, stream: rtsp://113.160.225.15:1513//CH001.sdp, desc: Mặt trước - Lane 1}
-    - {code: GC03_113_160_225_15_1514, stream: rtsp://113.160.225.15:1514//CH001.sdp, desc: Cửa sau - Lane 1}
-    - {code: GC03_113_160_225_15_1515, stream: rtsp://113.160.225.15:1515//CH001.sdp, desc: Cửa sau - Lane 2}
+    - {code: GC03_113_160_225_15_1508, stream: rtsp://113.160.225.15:1508//CH001.sdp, desc: Mặt phải trước, model_fps: 5}
+    - {code: GC03_113_160_225_15_1511, stream: rtsp://113.160.225.15:1511//CH001.sdp, desc: Mặt trước - Lane 2, model_fps: 5}
+    - {code: GC03_113_160_225_15_1513, stream: rtsp://113.160.225.15:1513//CH001.sdp, desc: Mặt trước - Lane 1, model_fps: 5}
+    - {code: GC03_113_160_225_15_1514, stream: rtsp://113.160.225.15:1514//CH001.sdp, desc: Cửa sau - Lane 1, model_fps: 5}
+    - {code: GC03_113_160_225_15_1515, stream: rtsp://113.160.225.15:1515//CH001.sdp, desc: Cửa sau - Lane 2, model_fps: 5}
 
   # --- nhận dạng số đầu kéo ---------------------------------
   # ⚠️ Vùng làn của tcode1 và crane1 có chiều NGƯỢC NHAU — hai camera nhìn cùng khu vực
@@ -61,14 +62,14 @@ cameras:
   #
   # Đã kiểm chứng: 18849/18849 điểm lưới cho phán quyết lane đúng như mong đợi.
   tcode:
-    - {code: GC03_113_160_225_15_1510, stream: rtsp://113.160.225.15:1510//CH001.sdp, desc: Đầu kéo - Lane 2}
-    - {code: GC03_113_160_225_15_1512, stream: rtsp://113.160.225.15:1512//CH001.sdp, desc: Đầu kéo - Lane 1}
+    - {code: GC03_113_160_225_15_1510, stream: rtsp://113.160.225.15:1510//CH001.sdp, desc: Đầu kéo - Lane 2, model_fps: 2}
+    - {code: GC03_113_160_225_15_1512, stream: rtsp://113.160.225.15:1512//CH001.sdp, desc: Đầu kéo - Lane 1, model_fps: 2}
 
   # --- nhìn xuống khu vực dưới cẩu ----------------------------------
   crane:
     # KHÔNG có truck_lines: slot container xác định bằng khoảng cách container <-> đầu
     # xe, không bằng dải dọc mà đầu xe rơi vào. Xem docs/DESIGN_NOTES.md DN-001.
-    - {code: GC03_113_160_225_15_1517, stream: rtsp://113.160.225.15:1517//CH001.sdp, desc: Trần container}
+    - {code: GC03_113_160_225_15_1517, stream: rtsp://113.160.225.15:1517//CH001.sdp, desc: Trần container, model_fps: 3.3}
 
   # --- soi đáy, không chạy model -----------------------------------
   bottom:
