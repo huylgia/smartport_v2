@@ -1344,6 +1344,20 @@ Tính giờ trên clip **đã ghép** (`clip_start + n/fps`) sai hai lần:
 Nên đồng hồ phải vẽ **theo từng lát, trước khi ghép**, lấy gốc từ đoạn nguồn của lát đó.
 `FragmentIndex.plan()` trả về đúng danh sách lát ấy, mỗi lát mang `start_unix` riêng.
 
+### Sổ đoạn ở `internal/pkg/`, không ở `ds_app/`
+
+`evidenced` là service Python thuần (PyInstaller + systemd); `ds_app` là container
+DeepStream. **Hai process khác nhau**, nên `evidenced` không đọc được sổ trong bộ nhớ của
+ds_app, và import ngược vào cây `ds_app/` là sai chiều phụ thuộc.
+
+`FragmentIndex.from_directory()` dựng lại sổ **từ đĩa**: tên thư mục là `camera_code`, tên
+file là epoch nguyên giây lúc mở đoạn. Đó là toàn bộ thông tin cần — và là lý do định dạng
+tên được chốt là con số chứ không phải chuỗi giờ.
+
+Đã kiểm end-to-end: ghi 70 giây rồi dựng lại từ đĩa, cửa sổ `[-35, +10]` ra 2 lát từ 2
+đoạn, kèm lỗ hổng 5 giây ở đầu vì cửa sổ với ngược quá đoạn cũ nhất còn giữ (retention
+3 phút). Lỗ hổng đó **được báo**, không bị nuốt.
+
 Nó cũng trả về **lỗ hổng** — khoảng không đoạn nào phủ (đoạn đã bị dọn, hoặc camera rớt).
 Phải báo ra chứ không lặng lẽ cắt ngắn: một clip thiếu 30 giây ở giữa trông y hệt clip bình
 thường, và người xem lại sự kiện sẽ tin nó đầy đủ.

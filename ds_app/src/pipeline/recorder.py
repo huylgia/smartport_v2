@@ -27,7 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from ds_app.src.pipeline.elements import MUXER, RECORD_QUEUE, SPLITMUX, apply_props, make
-from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
+from ds_app.src.pipeline.timesync import TimeSync
+from internal.pkg.fragments import FragmentIndex
 
 __all__ = ["RecordingBranch"]
 

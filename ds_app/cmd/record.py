@@ -39,7 +39,8 @@ from common.config import CameraConfig, load_crane  # noqa: E402
 from ds_app.src.pipeline.recorder import RecordingBranch  # noqa: E402
 from ds_app.src.pipeline.sources import make_source_bin  # noqa: E402
 from ds_app.src.pipeline.sweeper import SweepPolicy, schedule  # noqa: E402
-from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync  # noqa: E402
+from ds_app.src.pipeline.timesync import TimeSync  # noqa: E402
+from internal.pkg.fragments import FragmentIndex  # noqa: E402  # noqa: E402
 
 
 def _args() -> argparse.Namespace:

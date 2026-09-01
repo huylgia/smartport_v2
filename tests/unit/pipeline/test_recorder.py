@@ -264,7 +264,8 @@ def test_fragment_falls_back_to_wall_clock_without_a_time_base(gst: Any, tmp_pat
 
 def test_fragments_are_registered_for_lookup(gst: Any, tmp_path: Path) -> None:
     """Sổ đoạn là cách ``evidenced`` biết khoảnh khắc nào nằm ở đoạn nào."""
-    from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
+    from ds_app.src.pipeline.timesync import TimeSync
+    from internal.pkg.fragments import FragmentIndex
 
     sync = TimeSync()
     sync.anchor("1", pts_sec=0.0 + 1e-9, now_unix=1_700_000_000.0)
@@ -351,7 +352,8 @@ def test_configured_length_reaches_the_fragment_index(gst: Any, tmp_path: Path) 
     Lấy nhầm hằng số thì cửa sổ tra đoạn sai đúng bằng tỉ lệ giữa hai con số, và sai im
     lặng: `resolve()` vẫn trả về một đoạn, chỉ là đoạn sai ở gần ranh giới.
     """
-    from ds_app.src.pipeline.timesync import FragmentIndex, TimeSync
+    from ds_app.src.pipeline.timesync import TimeSync
+    from internal.pkg.fragments import FragmentIndex
 
     sync = TimeSync()
     sync.anchor("1", pts_sec=1.0, now_unix=1_700_000_000.0)
@@ -506,7 +508,7 @@ def test_a_failed_rename_is_reported_not_raised(gst: Any, tmp_path: Path) -> Non
 
 def test_live_path_points_at_the_part_file() -> None:
     """Đoạn chưa chốt vẫn đọc được — `evidenced` thường cần chính đoạn hiện tại."""
-    from ds_app.src.pipeline.timesync import Fragment
+    from internal.pkg.fragments import Fragment
 
     frag = Fragment(path="/rec/CAM/123.mp4", start_unix=1.0, end_unix=2.0)
     assert frag.live_path == "/rec/CAM/123.mp4.part"
