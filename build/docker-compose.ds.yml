@@ -107,6 +107,16 @@ services:
         --blackout ${BLACKOUT:-30}
     restart: "no"
 
+  # --- dò nhịp camera: chạy một lần lúc lắp đặt -------------------------------
+  probe:
+    <<: *ds
+    command: >
+      python3 ds_app/cmd/probe.py
+        --out /rec/_probe
+        --duration ${DUR:-50}
+        --segment-sec ${SEGMENT_SEC:-20}
+    restart: "no"
+
   # --- kiểm môi trường -------------------------------------------------------
   # Chạy trước khi nghi ngờ bất cứ điều gì khác: nó phân biệt "image hỏng" với
   # "cấu hình hỏng".

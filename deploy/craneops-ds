@@ -9,6 +9,7 @@
 #: logs           | 40 dòng log cuối
 #: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
 #: run            | CHẠY THẬT: ghi hình + suy luận, cùng một bộ nguồn
+#: probe          | Dò nhịp thật của mọi camera -> dòng config để dán
 #: record         | Ghi hình một camera, KHÔNG suy luận
 #: detect         | Chạy nhánh model: camera -> Triton -> kết quả
 #: clean          | Xoá segment đã ghi
@@ -67,6 +68,25 @@ cmd_status() {
   # `[ -n "$newest" ]` rỗng làm `status` trả 1 và `craneops` báo "ds: status thất bại"
   # trong khi không có gì hỏng cả.
   return 0
+}
+
+cmd_probe() {
+  local dur=50 seg=20
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --duration) dur="$2"; shift 2 ;;
+      --segment-sec) seg="$2"; shift 2 ;;
+      -h|--help)
+        printf 'craneops-ds probe [--duration GIÂY] [--segment-sec GIÂY]\n\n'
+        printf '  Ghi passthrough rồi ĐẾM KHUNG trong file -> nhịp thật của từng camera.\n'
+        printf '  Không decode, nên 0%% NVDEC và chạy được cả camera chỉ-ghi.\n'
+        printf '  --duration     phải >= 2x segment-sec để đóng được ít nhất một đoạn\n'
+        return 0 ;;
+      *) die "tham số không hợp lệ cho probe: $1  (--help để xem)" ;;
+    esac
+  done
+  require_docker
+  ( export DUR="$dur" SEGMENT_SEC="$seg"; compose run --rm probe )
 }
 
 cmd_record() {
@@ -170,7 +190,7 @@ cmd_clean() {
 }
 
 case "${1:-}" in
-  build|up|down|status|logs|doctor|run|record|detect|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|run|probe|record|detect|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-ds <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac

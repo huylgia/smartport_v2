@@ -772,7 +772,7 @@ craneops-triton accuracy
 ⚠️ **Đo tiến trình nào.** PID 1 trong container DeepStream là `entrypoint.sh`, không phải
 ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", và hoàn toàn vô nghĩa.
 
-#### Một camera không chạy 30 fps (2026-09-02)
+#### Ba camera không chạy 30 fps (2026-09-02)
 
 Phiên trên lộ ra camera `..._1517` chỉ đạt **63 %** nhịp đặt trong khi hai camera kia đạt
 99,9 %. Không phải mất message: `Δframe_id` đúng bằng `drop_frame_interval` không sót lần
@@ -795,6 +795,19 @@ trục thời gian, và nó loại trừ khả năng lỗi ở phía ds_app.
   Không có gì để đọc.
 
 Codec thì ngược lại: **tự dò hoàn toàn**, `nvurisrcbin` đọc SDP rồi chọn depay/decoder.
+
+Dò lại **cả 10 camera** bằng `craneops-ds probe` (ghi passthrough rồi đếm khung trong
+file, 0 % NVDEC, qua 8 đoạn) thì không phải một mà **ba** camera lệch:
+
+| Camera | vai trò | đo được | config cũ khai |
+|---|---|---:|---:|
+| `..._1517` | crane | **18,00** | 30 |
+| `..._1516` | bottom | **27,00** | 30 |
+| `..._1509` | evidence_only | **24,00** | 30 |
+
+Bảy camera còn lại đúng 30,00. Số đo ổn định qua mọi đoạn, và là số nguyên chính xác — nên
+đây là nhịp thật của camera, không phải mất gói. **Phép đo 2026-08-29 ghi "cả 10 camera
+30 fps" là sai.**
 
 `source_fps` vốn là một giá trị chung cả cẩu, nên nó không diễn đạt nổi điều này. Hệ quả
 không chỉ là một con số xấu: `drop_frame_interval` suy từ nó (30/3,3 → 9 thay vì 18/3,3 →

@@ -41,7 +41,11 @@
 crane_id: GC03
 berth_no: TS03 # mã bến, dùng để đối chiếu manifest Oracle
 num_lane: 3
-source_fps: 30 # đo 2026-08-29, cả 10 camera; ds_app đối chiếu lại lúc chạy
+source_fps: 30 # MẶC ĐỊNH; camera nào khác nhịp thì khai riêng trong dòng của nó
+# ⚠️ Ba camera KHÔNG chạy 30 fps — đo 2026-09-02 bằng `craneops-ds probe`, đếm khung trong
+# chính đoạn ghi passthrough qua 8 đoạn: 1517=18, 1516=27, 1509=24. Phép đo 2026-08-29 ghi
+# "cả 10 camera 30 fps" là sai. Khai sai làm `drop-frame-interval` tính sai, và nhịp model
+# lệch mà không có gì báo — xem docs/HARDWARE_BUDGET.md §6.3.
 
 cameras:
   # --- nhận dạng mã container -------------------------------
@@ -73,13 +77,13 @@ cameras:
 
   # --- soi đáy, không chạy model -----------------------------------
   bottom:
-    - {code: GC03_113_160_225_15_1516, stream: rtsp://113.160.225.15:1516//CH001.sdp, desc: Soi đáy}
+    - {code: GC03_113_160_225_15_1516, stream: rtsp://113.160.225.15:1516//CH001.sdp, desc: Soi đáy, source_fps: 27}
 
   # --- chỉ ghi hình, không xử lý ----------------------------
   # Chỉ góp một mặt vào bộ ảnh 6 mặt — không chạy model, và KHÔNG decode.
   # Xem CameraRole.EVIDENCE_ONLY trong common/enum.py.
   evidence_only:
-    - {code: GC03_113_160_225_15_1509, stream: rtsp://113.160.225.15:1509//CH001.sdp, desc: Hông trái - Trước}
+    - {code: GC03_113_160_225_15_1509, stream: rtsp://113.160.225.15:1509//CH001.sdp, desc: Hông trái - Trước, source_fps: 24}
 # Nguồn thật đo 2026-08-29: cả 10 camera đều 2688x1520 @ 30 fps HEVC, GOP 50, IPPP.
 # Lưu ý: `resolution`/`fps` ở tầng camera là ĐÍCH xử lý, không phải thuộc tính nguồn.
 # Chi tiết + ngân sách NVDEC: docs/HARDWARE_BUDGET.md §2.
