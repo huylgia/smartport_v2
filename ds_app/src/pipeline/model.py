@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -205,8 +204,11 @@ class ModelBranch:
         # probe trả về. Phải CHÉP, và chép trước khi bỏ kênh alpha: cắt view rồi mới chép
         # thì vẫn là chép, chỉ ít byte hơn.
         surface: Image = pyds.get_nvds_buf_surface(hash(buf), frame.batch_id)
-        image = np.array(surface[:, :, :3][:, :, ::-1], copy=True, order="C")  # RGBA -> BGR
-        _dump_once(surface, camera.code)
+        # ⚠️ Phép đảo `[::-1]` là BẮT BUỘC: caps khai RGBA nên ba kênh đầu là **RGB**, còn
+        # model nhận BGR. Bỏ nó đi thì model vẫn tìm ra ĐÚNG số vật — nên không có gì báo —
+        # nhưng điểm cao nhất tụt 0,932 → 0,507, dưới `head_thresh` 0,6 của CRANE01, và
+        # lane không bao giờ được gán. Xem HARDWARE_BUDGET §6.2.
+        image = np.array(surface[:, :, :3][:, :, ::-1], copy=True, order="C")
 
         job = FrameJob(
             camera_code=camera.code,
@@ -226,27 +228,3 @@ class ModelBranch:
             ),
         )
         self._submit(job)
-
-
-_DUMPED: set[str] = set()
-
-
-def _dump_once(surface: Image, camera_code: str) -> None:
-    """Ghi MỘT khung thô ra ``.npy`` khi ``CRANEOPS_DUMP_FRAME`` được đặt.
-
-    Giả định "surface là RGBA" không kiểm được bằng test đơn vị: nếu nó thật ra là BGRA
-    thì model vẫn trả về hộp, chỉ kém đi, và không có gì báo. Cách duy nhất là nhìn.
-
-    Ghi mảng thô chứ không ghi PNG: image này KHÔNG có OpenCV (xem ``build/ds_app.Dockerfile``
-    — thêm nó chỉ để debug sẽ tạo ra một bản cv2 thứ hai có thể lệch phiên bản với bản
-    trong Triton). Soi bằng công cụ ở host.
-    """
-    import os
-
-    out = os.environ.get("CRANEOPS_DUMP_FRAME")
-    if not out or camera_code in _DUMPED:
-        return
-    _DUMPED.add(camera_code)
-    root = Path(out)
-    root.mkdir(parents=True, exist_ok=True)
-    np.save(root / f"{camera_code}.npy", np.ascontiguousarray(surface[:, :, :3]))
