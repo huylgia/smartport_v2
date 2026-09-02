@@ -280,8 +280,12 @@ HEADCODE_CLS = ModelSpec(
     # tools/export_headcode_cls.py --nchw --fold-preprocess rồi mã hoá lại.
     # Xem docs/DESIGN_NOTES.md DN-003.
     source="camera-truckNo/cls-truckHead/truckHeadCls_reparam_folded.t7",
-    # Input là RGB **THÔ [0,255]** — phép chuẩn hoá ImageNet đã gấp vào model, nên
-    # DeepStream chỉ cần net-scale-factor=1.0 và không có offset. Xem DN-003.
+    # ⚠️ Input là **BGR** thô [0,255], KHÔNG phải RGB — xem `note` bên dưới và DN-003.
+    #
+    # Comment ở đây từng ghi "RGB", và nó mô tả bản ONNX TRƯỚC khi gấp: model gốc nhận RGB
+    # (`tools/export_headcode_cls.py` đo được RGB 100 % / BGR 87,6 %). `--fold-preprocess`
+    # gấp luôn phép đảo kênh vào đồ thị, nên bản đang phục vụ nhận ngược lại. Đo trên chính
+    # engine 2026-09-02: **BGR 100,00 % / RGB 87,36 %**.
     inputs=(Shape("input", (3, 224, 224)),),
     outputs=(Shape("head", (54,)),),
     max_batch_size=16,

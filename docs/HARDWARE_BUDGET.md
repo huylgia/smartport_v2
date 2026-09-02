@@ -373,6 +373,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-02 | dev | Gửi khung nguyên 12,26 MB qua gRPC | **0 khung trễ tới x8** tải mục tiêu · gãy ở x16 · GPU 9 % | §6.1 |
 | 2026-09-02 | dev | Nhánh model chạy thật, crane + tcode | **333/333 khung, 0 bỏ, 0 lỗi** · 98 % nhịp đặt | §6.1 |
 | 2026-09-02 | dev | Thứ tự kênh khung DeepStream | RGBA ⇒ phải đảo; sai kênh điểm tụt **0,932 → 0,507** | §6.2 |
+| 2026-09-02 | dev | Tiền xử lý crop cho classifier số xe | BGR **100 %** / RGB 87,4 % · nội suy không đổi gì · hình học crop khớp | §6.2 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -575,6 +576,27 @@ Cùng khung đó qua `craneops_truckitems_pico`:
 
 Sai kênh **vẫn ra đúng số vật** — nên không có gì báo. Nhưng `Crane01Config.head_thresh`
 là 0,6, nên 0,507 bị loại sạch và `CRANE01` không gán được lane nào.
+
+#### Tiền xử lý crop cho `craneops_headcode_cls` (2026-09-02)
+
+Nhánh `tcode` cắt hộp đầu kéo rồi đưa vào classifier, nên crop phải khớp phân bố huấn
+luyện ở ba mặt. Đo cả ba trên 451 ảnh có nhãn + hộp thật từ camera live:
+
+| Mặt | Kết quả |
+|---|---|
+| **Thứ tự kênh** | **BGR 100,00 %** · RGB 87,36 % ⇒ model đã fold phép đảo kênh, nhận BGR |
+| **Nội suy** | `LINEAR` / `CUBIC` / `AREA` đều **100 %**, điểm trung bình lệch 0,0001 ⇒ không nhạy |
+| **Hình học crop** | hộp live ~405x378 px, tỉ lệ 1,06-1,16 · crop huấn luyện trung vị 384x387, tỉ lệ 1,01 (dải 0,65-1,85) |
+
+Khác PicoDet: ở đó đổi nội suy dịch hộp tới 17,2 px, còn classifier này thì không phân biệt.
+Đừng suy luật của model này sang model kia.
+
+⚠️ Comment trong `tools/export_models.py` từng ghi input là **RGB**. Nó mô tả bản ONNX
+*trước* khi gấp — `--fold-preprocess` gấp luôn phép đảo kênh, nên bản đang phục vụ nhận
+ngược lại. Hai câu mâu thuẫn nằm cách nhau 10 dòng trong cùng một `ModelSpec`.
+
+Với xe vào đúng khung, số xe đọc ra **0,99-1,00** trên cả hai camera tcode — tức ngưỡng
+`head_code_thresh` 0,93 là phù hợp, không quá chặt.
 
 Hai model pico đo lại 2026-09-02 với `INTER_CUBIC` (phép nội suy chúng được huấn luyện
 với) thay cho `INTER_LINEAR` mà công cụ dùng nhầm trước đó. **Recall không đổi** ở cả hai;

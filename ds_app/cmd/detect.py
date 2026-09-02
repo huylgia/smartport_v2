@@ -120,7 +120,12 @@ def main() -> int:
         if args.quiet:
             return
         what = ", ".join(
+            # Kích thước hộp có mặt vì nó quyết định chất lượng crop đưa vào classifier:
+            # crop huấn luyện có tỉ lệ rộng/cao ~1,0, nên một hộp dẹt bị ép về 224x224
+            # vuông sẽ méo khác hẳn lúc huấn luyện.
             f"{d['class_name']}@{d['confidence']:.2f}"
+            + f" {d['bbox'][2] - d['bbox'][0]}x{d['bbox'][3] - d['bbox'][1]}"
+            + f"(ar {(d['bbox'][2] - d['bbox'][0]) / max(1, d['bbox'][3] - d['bbox'][1]):.2f})"
             + ("".join(f" [{k}={v:.2f}]" for k, v in d.get("attrs", {}).items()))
             for d in found
         )
