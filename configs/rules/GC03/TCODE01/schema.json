@@ -8,6 +8,7 @@
     "description": "``TCODE01`` — nhận dạng số đầu kéo (classifier tập đóng ~130 lớp).",
     "properties": {
       "lane1_zone": {
+        "description": "Đa giác của làn 1 trên khung hình CAMERA NÀY, toạ độ tương đối [0..1]. Để trống\nnghĩa là camera này không nhìn thấy làn 1.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -29,6 +30,7 @@
         "type": "array"
       },
       "lane2_zone": {
+        "description": "Như :attr:`lane1_zone`, cho làn 2.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -50,6 +52,7 @@
         "type": "array"
       },
       "lane3_zone": {
+        "description": "Như :attr:`lane1_zone`, cho làn 3.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -72,6 +75,7 @@
       },
       "lane_anchor": {
         "default": 1,
+        "description": "Điểm mốc của bbox dùng để xét nó nằm trong vùng làn nào.",
         "examples": [
           "CENTER",
           "BOTTOM",
@@ -81,6 +85,7 @@
       },
       "head_thresh": {
         "default": 0.8,
+        "description": "Ngưỡng tin cậy tối thiểu cho bbox đầu kéo — dưới ngưỡng thì không đọc số.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Head Thresh",
@@ -88,6 +93,7 @@
       },
       "head_code_thresh": {
         "default": 0.93,
+        "description": "Cao hơn ``head_thresh`` vì tập lớp đóng — đoán bừa thì rẻ, đoán sai thì đắt.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Head Code Thresh",
@@ -95,6 +101,7 @@
       },
       "min_streak": {
         "default": 3,
+        "description": "Số khung liên tiếp cùng một số xe mới phát signal.\n\n⚠️ **\"Liên tiếp\" phải đo bằng THỜI GIAN, không bằng ``frame_id`` liền kề.** ``frame_id``\nchỉ đếm khung nhận được: lúc camera mất mạng nó đứng yên, nên khung N và N+bước là\nliền kề theo chỉ số mà cách nhau cả đợt gián đoạn — đo được **30 s** cho một lần rớt\nmạng, so với 1,5 s của ba khung bình thường ở 2 fps. Một chuỗi bắc qua đó sẽ ghép lần\nđọc của xe cũ với lần đọc của xe mới, và phát ra một signal chưa từng đúng ở khoảnh\nkhắc nào. Nơi đếm chuỗi phải kiểm cả khoảng cách ``frame_ts``. Xem\n``docs/HARDWARE_BUDGET.md`` §6.1.",
         "minimum": 1,
         "title": "Min Streak",
         "type": "integer"

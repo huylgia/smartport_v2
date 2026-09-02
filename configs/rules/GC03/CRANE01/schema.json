@@ -8,6 +8,7 @@
     "description": "``CRANE01`` — gán lane từ bbox đầu kéo trên camera nhìn xuống.",
     "properties": {
       "lane1_zone": {
+        "description": "Đa giác của làn 1 trên khung hình CAMERA NÀY, toạ độ tương đối [0..1]. Để trống\nnghĩa là camera này không nhìn thấy làn 1.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -29,6 +30,7 @@
         "type": "array"
       },
       "lane2_zone": {
+        "description": "Như :attr:`lane1_zone`, cho làn 2.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -50,6 +52,7 @@
         "type": "array"
       },
       "lane3_zone": {
+        "description": "Như :attr:`lane1_zone`, cho làn 3.",
         "items": {
           "maxItems": 2,
           "minItems": 2,
@@ -72,6 +75,7 @@
       },
       "lane_anchor": {
         "default": 1,
+        "description": "Điểm mốc của bbox dùng để xét nằm trong vùng nào.",
         "examples": [
           "CENTER",
           "BOTTOM",
@@ -81,6 +85,7 @@
       },
       "head_thresh": {
         "default": 0.6,
+        "description": "Ngưỡng tin cậy tối thiểu cho bbox đầu kéo.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Head Thresh",

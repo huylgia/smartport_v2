@@ -9,6 +9,7 @@
     "properties": {
       "ocr_threshold": {
         "default": 0.95,
+        "description": "Ngưỡng chấp nhận một chuỗi đọc được.\n\nỞ đây chứ không ở từng vùng OCR: đo trên v1 thấy cả 8 vùng dùng chung 0,95, nên nó là\nmột tham số hiệu chỉnh của rule chứ không phải thuộc tính của vùng. Và nó là bộ lọc áp\n**sau** khi đọc — probe cứ phát mọi kết quả kèm confidence, rule quyết định.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Ocr Threshold",
@@ -16,24 +17,28 @@
       },
       "top_k": {
         "default": 5,
+        "description": "Số ứng viên giữ lại cho mỗi vùng chữ trước khi ghép mã.",
         "minimum": 1,
         "title": "Top K",
         "type": "integer"
       },
       "sharpness_min": {
         "default": 1000.0,
+        "description": "Dưới ngưỡng này thì bỏ crop, không đưa vào OCR.",
         "minimum": 0.0,
         "title": "Sharpness Min",
         "type": "number"
       },
       "pair_distance_px": {
         "default": 60.0,
+        "description": "Khoảng cách tâm tối đa để ghép part-1 với part-2.",
         "exclusiveMinimum": 0.0,
         "title": "Pair Distance Px",
         "type": "number"
       },
       "bitmap_threshold": {
         "default": 0.1,
+        "description": "Ngưỡng nhị phân hoá bản đồ xác suất của detector chữ (DB).",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Bitmap Threshold",
@@ -41,6 +46,7 @@
       },
       "box_threshold": {
         "default": 0.2,
+        "description": "Điểm tối thiểu của một hộp chữ sau khi hậu xử lý DB.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Box Threshold",
@@ -48,6 +54,7 @@
       },
       "character_threshold": {
         "default": 0.3,
+        "description": "Điểm tối thiểu của một ký tự khi giải mã CTC.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Character Threshold",
@@ -55,6 +62,7 @@
       },
       "iso_threshold": {
         "default": 0.95,
+        "description": "Ngưỡng chấp nhận một chuỗi ĐÃ QUA kiểm tra ký tự kiểm ISO 6346.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Iso Threshold",
@@ -62,6 +70,7 @@
       },
       "min_streak": {
         "default": 3,
+        "description": "Số khung liên tiếp cùng một mã container mới phát signal.\n\n⚠️ **\"Liên tiếp\" phải đo bằng THỜI GIAN, không bằng ``frame_id`` liền kề.** ``frame_id``\nchỉ đếm khung nhận được: lúc camera mất mạng nó đứng yên, nên khung N và N+bước là\nliền kề theo chỉ số mà cách nhau cả đợt gián đoạn — đo được **30 s** cho một lần rớt\nmạng, so với 1,5 s của ba khung bình thường ở 2 fps. Một chuỗi bắc qua đó sẽ ghép lần\nđọc của xe cũ với lần đọc của xe mới, và phát ra một signal chưa từng đúng ở khoảnh\nkhắc nào. Nơi đếm chuỗi phải kiểm cả khoảng cách ``frame_ts``. Xem\n``docs/HARDWARE_BUDGET.md`` §6.1.",
         "minimum": 1,
         "title": "Min Streak",
         "type": "integer"

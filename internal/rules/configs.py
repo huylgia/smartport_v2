@@ -64,11 +64,25 @@ class _LaneZones(BaseModel):
     Để trống một làn nghĩa là camera này không nhìn thấy làn đó.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        # ⚠️ BẮT BUỘC, không phải trang trí. Không có nó, pydantic bỏ qua docstring dưới
+        # mỗi trường và `schema.json` sinh ra **không có một description nào** — toàn bộ
+        # phần giải thích ngưỡng ở file này không bao giờ tới được người sửa
+        # `config.json`, vốn là đối tượng nó được viết cho.
+        use_attribute_docstrings=True,
+    )
 
     lane1_zone: Polygon = Field(default_factory=list)
+    """Đa giác của làn 1 trên khung hình CAMERA NÀY, toạ độ tương đối [0..1]. Để trống
+    nghĩa là camera này không nhìn thấy làn 1."""
+
     lane2_zone: Polygon = Field(default_factory=list)
+    """Như :attr:`lane1_zone`, cho làn 2."""
+
     lane3_zone: Polygon = Field(default_factory=list)
+    """Như :attr:`lane1_zone`, cho làn 3."""
 
     def zones(self) -> dict[Lane, Polygon]:
         """Các làn **có** vùng, dạng ánh xạ — cho ``LaneZones.from_config``."""
@@ -84,7 +98,15 @@ class _RuleConfig(BaseModel):
     """Nền chung. ``extra="forbid"``: gõ sai một khoá là lỗi lúc load, không phải mặc định
     im lặng — cùng lý do như config ds_app."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        # ⚠️ BẮT BUỘC, không phải trang trí. Không có nó, pydantic bỏ qua docstring dưới
+        # mỗi trường và `schema.json` sinh ra **không có một description nào** — toàn bộ
+        # phần giải thích ngưỡng ở file này không bao giờ tới được người sửa
+        # `config.json`, vốn là đối tượng nó được viết cho.
+        use_attribute_docstrings=True,
+    )
 
 
 def _anchor_from_name(v: Anchor | str | int) -> Anchor:
@@ -140,8 +162,10 @@ class TCode01Config(_LaneZones):
     """``TCODE01`` — nhận dạng số đầu kéo (classifier tập đóng ~130 lớp)."""
 
     lane_anchor: AnchorName = Anchor.CENTER
+    """Điểm mốc của bbox dùng để xét nó nằm trong vùng làn nào."""
 
     head_thresh: Confidence = 0.8
+    """Ngưỡng tin cậy tối thiểu cho bbox đầu kéo — dưới ngưỡng thì không đọc số."""
     head_code_thresh: Confidence = 0.93
     """Cao hơn ``head_thresh`` vì tập lớp đóng — đoán bừa thì rẻ, đoán sai thì đắt."""
 
@@ -183,6 +207,7 @@ class Crane02Config(_RuleConfig):
     rộng. Ngoài dải ⇒ **không phát signal**, dù bbox đứng yên."""
 
     head_thresh: Confidence = 0.6
+    """Ngưỡng tin cậy tối thiểu cho bbox đầu kéo."""
 
 
 class CCode01Config(_RuleConfig):
@@ -196,6 +221,7 @@ class CCode01Config(_RuleConfig):
     **sau** khi đọc — probe cứ phát mọi kết quả kèm confidence, rule quyết định."""
 
     top_k: int = Field(default=5, ge=1)
+    """Số ứng viên giữ lại cho mỗi vùng chữ trước khi ghép mã."""
     sharpness_min: float = Field(default=1000.0, ge=0.0)
     """Dưới ngưỡng này thì bỏ crop, không đưa vào OCR."""
 
@@ -203,9 +229,16 @@ class CCode01Config(_RuleConfig):
     """Khoảng cách tâm tối đa để ghép part-1 với part-2."""
 
     bitmap_threshold: Confidence = 0.1
+    """Ngưỡng nhị phân hoá bản đồ xác suất của detector chữ (DB)."""
+
     box_threshold: Confidence = 0.2
+    """Điểm tối thiểu của một hộp chữ sau khi hậu xử lý DB."""
+
     character_threshold: Confidence = 0.3
+    """Điểm tối thiểu của một ký tự khi giải mã CTC."""
+
     iso_threshold: Confidence = 0.95
+    """Ngưỡng chấp nhận một chuỗi ĐÃ QUA kiểm tra ký tự kiểm ISO 6346."""
 
     min_streak: int = Field(default=3, ge=1)
     """Số khung liên tiếp cùng một mã container mới phát signal.

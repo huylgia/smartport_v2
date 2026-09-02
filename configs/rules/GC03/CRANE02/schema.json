@@ -9,18 +9,21 @@
     "properties": {
       "stable_duration": {
         "default": 3.0,
+        "description": "Giây. Đếm theo **thời gian**, không theo số khung: đếm khung trói định nghĩa \"ổn\nđịnh\" vào fps của nguồn, và đổi cấu hình camera là vô tình đổi luôn ngưỡng nghiệp vụ.",
         "exclusiveMinimum": 0.0,
         "title": "Stable Duration",
         "type": "number"
       },
       "stable_move_ratio": {
         "default": 0.02,
+        "description": "Dịch chuyển tối đa, **tỉ lệ so với đường chéo bbox**. Ngưỡng pixel tuyệt đối phụ\nthuộc độ phân giải và khoảng cách xe tới camera. Xem DN-002 Q3.",
         "exclusiveMinimum": 0.0,
         "title": "Stable Move Ratio",
         "type": "number"
       },
       "stop_band": {
         "default": 0.35,
+        "description": "Đầu xe khi dừng phải nằm trong dải này tính từ một mép ảnh, tương đối theo chiều\nrộng. Ngoài dải ⇒ **không phát signal**, dù bbox đứng yên.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Stop Band",
@@ -28,6 +31,7 @@
       },
       "head_thresh": {
         "default": 0.6,
+        "description": "Ngưỡng tin cậy tối thiểu cho bbox đầu kéo.",
         "maximum": 1.0,
         "minimum": 0.0,
         "title": "Head Thresh",
