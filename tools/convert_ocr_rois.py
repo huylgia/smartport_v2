@@ -53,6 +53,15 @@ SHAPE = {"V0": "vertical", "H1": "horizontal"}
 DIM = {"0": "40feet", "1": "20feet"}
 
 
+SHAPES_BY_CAMERA = {1: ("horizontal", "vertical")}
+"""Hình dạng mã mỗi camera thật sự phục vụ, khoá theo **id camera của v1**.
+
+Camera nào không có ở đây thì **chỉ ngang**. Đây là một quyết định nghiệp vụ, không phải
+port trung thành: v1 khai thêm vùng dọc cho camera 4 và 6, và bỏ chúng đi là **giảm** thứ
+v1 phát hiện được. Bỏ có chủ ý — chỉ camera 1 (`..._1508`) nhìn được mã dọc ở vị trí dùng
+được."""
+
+
 @dataclass(frozen=True, slots=True)
 class Roi:
     shape: str
@@ -127,16 +136,34 @@ def main(argv: list[str] | None = None) -> int:
         f"{sorted(thresholds)}, nên nó là tham số của rule CCODE01."
     )
     for cam_id, name, resolution, rois in rows:
-        print(f"\n# camera {cam_id} ({name}) — v1 khai {resolution}")
-        print("      ocr_rois:")
-        for r in rois:
-            roi = ", ".join(f"{v:.4f}" for v in r.roi)
-            print(
-                f"        - {{shape: {r.shape}, lane: '{r.lane}', cont_dim: {r.cont_dim}, "
-                f"roi: [{roi}], input_size: [{r.input_size[0]}, {r.input_size[1]}], "
+        want = SHAPES_BY_CAMERA.get(cam_id, ("horizontal",))
+        print(f"\n# camera {cam_id} ({name}) — v1 khai {resolution}; giữ {', '.join(want)}")
+        for (lane, dim), group in _by_pair(rois, want).items():
+            # Vùng là HỢP của mọi hình dạng: v1 chép toạ độ cho từng hình dạng nên chúng
+            # có thể lệch nhau, và lấy hợp thì không model nào mất diện tích nó đang có.
+            x1 = min(r.roi[0] for r in group.values())
+            y1 = min(r.roi[1] for r in group.values())
+            x2 = max(r.roi[2] for r in group.values())
+            y2 = max(r.roi[3] for r in group.values())
+            shapes = ", ".join(
+                f"{sh}: {{input_size: [{r.input_size[0]}, {r.input_size[1]}], "
                 f"expand_ratio: [{r.expand_ratio[0]}, {r.expand_ratio[1]}]}}"
+                for sh, r in sorted(group.items())
+            )
+            print(
+                f"  - {{lane: '{lane}', cont_dim: {dim}, "
+                f"roi: [{x1:.4f}, {y1:.4f}, {x2:.4f}, {y2:.4f}], shapes: {{{shapes}}}}}"
             )
     return 0
+
+
+def _by_pair(rois: list[Roi], want: tuple[str, ...]) -> dict[tuple[str, str], dict[str, Roi]]:
+    """Gom vùng theo ``(lane, cont_dim)``, chỉ giữ hình dạng trong ``want``."""
+    out: dict[tuple[str, str], dict[str, Roi]] = {}
+    for r in rois:
+        if r.shape in want:
+            out.setdefault((r.lane, r.cont_dim), {})[r.shape] = r
+    return out
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -55,6 +55,31 @@ class ConfigError(ValueError):
     """Config sai. Luôn kèm đường dẫn file và chỗ sai."""
 
 
+class ShapeParams(BaseModel):
+    """Tham số tiền xử lý cho MỘT hình dạng mã trên một vùng.
+
+    Vùng dùng chung, tham số thì không: ``ccode_det_h`` và ``ccode_det_v`` nhận kích thước
+    khác nhau và cần nới khác nhau. Đo trên v1, cùng một vùng: ``input_size`` 800x992
+    (ngang) so 480x608 (dọc).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    input_size: tuple[int, int]
+    """``(cao, rộng)`` đưa vào detector. Thứ tự này ngược ``cv2.resize`` — dễ nhầm."""
+
+    expand_ratio: tuple[float, float] = (1.0, 1.0)
+    """``(rộng, cao)``. Nới vùng trước khi cắt — khác nhau theo từng vùng VÀ từng hình
+    dạng; đo trên v1 thấy từ 1,0/1,1 tới 1,3/1,15."""
+
+    @field_validator("input_size")
+    @classmethod
+    def _positive(cls, v: tuple[int, int]) -> tuple[int, int]:
+        if v[0] <= 0 or v[1] <= 0:
+            raise ValueError(f"input_size phải dương, nhận {v}")
+        return v
+
+
 class OcrRoi(BaseModel):
     """Một vùng OCR tĩnh trên camera ``ccode``: cắt ở đâu, và vùng đó **nghĩa là gì**.
 
@@ -74,9 +99,6 @@ class OcrRoi(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    shape: str = Field(pattern="^(horizontal|vertical)$")
-    """Mã container nằm ngang hay dọc — chọn cặp model ``ccode_{det,rec}_{h,v}``."""
-
     lane: Lane
     """Vùng này phủ làn nào. Đi thẳng vào ``OcrResult.lane``."""
 
@@ -86,12 +108,17 @@ class OcrRoi(BaseModel):
     roi: tuple[Relative, Relative, Relative, Relative]
     """``(x1, y1, x2, y2)`` tương đối."""
 
-    input_size: tuple[int, int] = Field()
-    """``(cao, rộng)`` đưa vào detector. Thứ tự này ngược ``cv2.resize`` — dễ nhầm."""
+    shapes: dict[Literal["horizontal", "vertical"], ShapeParams] = Field(min_length=1)
+    """Hình dạng mã chạy trên vùng này → tham số của nó. Chọn cặp model
+    ``ccode_{det,rec}_{h,v}``.
 
-    expand_ratio: tuple[float, float] = (1.0, 1.0)
-    """Nới vùng trước khi cắt. **Khác nhau theo từng vùng** — đo trên v1 thấy 1,0/1,1 tới
-    1,3/1,15 — nên nó thuộc về vùng, không phải một giá trị chung."""
+    **Một vùng, nhiều hình dạng.** v1 khai mỗi (vùng, hình dạng) thành một mục riêng, nên
+    cùng một toạ độ bị chép hai lần — hai bản có thể trôi khỏi nhau, và đã trôi: ở
+    ``..._1508`` lane 1 / 20 feet, bản ngang là (0,138)-(535,720) còn bản dọc là
+    (0,161)-(560,683). v2 gộp thành **hợp** của hai vùng, nên không mất diện tích mà model
+    nào đang có.
+
+    Rỗng là lỗi: một vùng không chạy hình dạng nào chỉ tốn một lần cắt ảnh."""
 
     @field_validator("roi")
     @classmethod
@@ -99,13 +126,6 @@ class OcrRoi(BaseModel):
         x1, y1, x2, y2 = v
         if x2 <= x1 or y2 <= y1:
             raise ValueError(f"roi lật ngược hoặc rỗng: {v}")
-        return v
-
-    @field_validator("input_size")
-    @classmethod
-    def _positive(cls, v: tuple[int, int]) -> tuple[int, int]:
-        if v[0] <= 0 or v[1] <= 0:
-            raise ValueError(f"input_size phải dương, nhận {v}")
         return v
 
 

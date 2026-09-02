@@ -774,7 +774,18 @@ ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", v�
 
 #### Vùng OCR chuyển từ v1 (2026-09-02)
 
-20 vùng / 5 camera ccode, chuyển bằng `tools/convert_ocr_rois.py`.
+**12 vùng / 5 camera ccode**, chuyển bằng `tools/convert_ocr_rois.py`.
+
+Một vùng = một cặp `(lane, cont_dim)`; hình dạng mã nào chạy trên nó thì khai trong
+`shapes` kèm tham số riêng. v1 tách thành 20 mục (mỗi cặp x mỗi hình dạng) và **chép toạ
+độ hai lần**, nên hai bản trôi khỏi nhau được — và đã trôi ở `..._1508` lane 1 / 20 feet:
+ngang (0,138)-(535,720) so dọc (0,161)-(560,683). v2 giữ **hợp** của chúng, nên không
+model nào mất diện tích nó đang có.
+
+⚠️ Chỉ `..._1508` phục vụ cả ngang lẫn dọc; bốn camera còn lại chỉ ngang. Đây là quyết
+định **nghiệp vụ**, không phải port trung thành: v1 có khai vùng dọc cho `..._1511` và
+`..._1513`, bỏ đi là giảm thứ v1 phát hiện được. Tải giảm từ 20 xuống **16 lượt đọc mỗi
+khung**.
 
 ⚠️ **Toạ độ v1 là pixel tuyệt đối trong không gian ĐỘ PHÂN GIẢI KHAI, không phải nguồn.**
 v1 co giãn mọi khung trước khi xử lý (`videoscale ! video/x-raw,width=…,height=…`), và

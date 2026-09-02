@@ -123,11 +123,10 @@ def test_config_with_no_model_camera_is_rejected(tmp_path: Path) -> None:
 
 def _roi(**over: object) -> OcrRoi:
     base: dict[str, object] = {
-        "shape": "horizontal",
         "lane": Lane.ONE,
         "cont_dim": ContainerDim.FT40,
         "roi": (0.1, 0.1, 0.5, 0.5),
-        "input_size": (640, 672),
+        "shapes": {"horizontal": {"input_size": (640, 672)}},
     }
     base.update(over)
     return OcrRoi.model_validate(base)
@@ -144,14 +143,7 @@ def test_ocr_roi_carries_the_meaning_the_message_needs() -> None:
     Probe của ds_app phải điền hai trường đó. Tách chúng sang config rule thì ds_app hoặc
     phải đọc ngược config của rule, hoặc không điền nổi message.
     """
-    assert set(OcrRoi.model_fields) == {
-        "shape",
-        "lane",
-        "cont_dim",
-        "roi",
-        "input_size",
-        "expand_ratio",
-    }
+    assert set(OcrRoi.model_fields) == {"lane", "cont_dim", "roi", "shapes"}
     assert "ocr_threshold" not in OcrRoi.model_fields, "ngưỡng là tham số hiệu chỉnh của rule"
 
 
