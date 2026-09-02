@@ -10,17 +10,24 @@ CODE = [(1000.0, 700.0), (1174.0, 700.0), (1174.0, 728.0), (1000.0, 728.0)]
 """Mã 174x28 px — kích thước trung vị đo được trên mẫu GC03."""
 
 
-def test_it_lands_on_the_measured_operating_point() -> None:
-    """⚠️ Đây là phép neo. Đo trên cấu hình đang chạy ở cảng: vùng 776x722 cho một mã
-    174x28, và detector nhận 640x592 với mã chiếm ~20 % bề rộng.
+def test_the_default_reaches_the_operating_point_at_context_five() -> None:
+    """⚠️ Phép neo. Đo trên cấu hình đang chạy ở cảng: vùng 776x722 cho một mã 174x28, và
+    detector nhận 640x592 với mã chiếm ~20 % bề rộng.
 
-    Công thức phải cho ra cùng vùng đó, nếu không nó chỉ là một con số bịa.
+    ``context=5`` phải cho ra đúng vùng đó, nếu không con số 5 chỉ là bịa. Mặc định hiện
+    tại là 3 — mốc khởi đầu, rẻ hơn, chưa được đo là tốt hơn.
     """
-    x1, y1, x2, y2 = roi_from_code(CODE, 2688, 1520)
+    x1, y1, x2, y2 = roi_from_code(CODE, 2688, 1520, context=5.0)
     w, h = round((x2 - x1) * 2688), round((y2 - y1) * 1520)
 
     assert (w, h) == (870, 870)
     assert fit_long_side(h, w) == (640, 640)
+
+
+def test_the_default_is_the_agreed_starting_point() -> None:
+    """3 là mốc khởi đầu để bắt đầu gán nhãn, không phải giá trị tối ưu — số đo hiện có
+    nghiêng về giá trị lớn hơn (k=3 cho nhiều lần đọc SAI nhất)."""
+    assert CODE_CONTEXT == 3.0
 
 
 def test_the_region_is_square_not_the_code_aspect() -> None:
@@ -63,7 +70,9 @@ def test_it_needs_exactly_four_points() -> None:
         roi_from_code(CODE[:3], 2688, 1520)
 
 
-def test_the_default_matches_both_independent_measurements() -> None:
-    """Tính ngược 20 vùng của v1 cho 4,89x; điểm vận hành cho 5,0x. Mặc định phải nằm giữa
-    hai con số đó, không phải một giá trị chọn cho tiện."""
-    assert 4.5 <= CODE_CONTEXT <= 6.0
+def test_the_measured_context_stays_reachable() -> None:
+    """Hai phép đo độc lập cho 4,89x và 5,0x. Mặc định có thể khác, nhưng công thức phải
+    còn dựng được vùng đó — đó là chỗ quay về nếu k=3 đọc sai nhiều ngoài thực địa."""
+    a = roi_from_code(CODE, 2688, 1520, context=3.0)
+    b = roi_from_code(CODE, 2688, 1520, context=5.0)
+    assert (b[2] - b[0]) / (a[2] - a[0]) == pytest.approx(5 / 3, rel=0.02)

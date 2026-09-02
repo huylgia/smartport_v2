@@ -153,13 +153,35 @@ def fit_long_side(height: int, width: int, long_side: int = DET_LONG_SIDE) -> tu
     )
 
 
-CODE_CONTEXT = 5.0
+CODE_CONTEXT = 3.0
 """Cạnh vùng crop, tính theo **bội cạnh dài của chính mã container**.
 
 Người vẽ vùng chỉ cần khoanh 4 điểm của mã; phần nới ra suy từ đây. Đó là việc lặp lại
 được — khác hẳn việc vẽ một vùng rồi dò ``input_size`` cho nó.
 
-Con số 5 đến từ hai phép đo độc lập cùng chỉ về một chỗ:
+**3 là mốc khởi đầu, chọn để bắt đầu gán nhãn**, không phải giá trị đã tối ưu. Nó cho crop
+chỉ bằng **36 %** diện tích của 5, tức rẻ hơn nhiều — và số đo hiện có chưa đủ để bác bỏ nó.
+
+⚠️ Nhưng số đo hiện có **nghiêng về giá trị lớn hơn**, và chỗ đáng lo là kiểu hỏng:
+
+======  ======  =======  ======  ==========  ==================
+``k``   đúng    **SAI**  sót     mã chiếm    chữ cao trong det
+======  ======  =======  ======  ==========  ==================
+3       1       **2**    11      33 %        **34 px**
+4       3       1        10      25 %        26 px
+5       4       1        9       20 %        21 px
+======  ======  =======  ======  ==========  ==================
+
+Cột "đúng" thiên lệch (mẫu chuẩn lấy từ chính vùng của v1), nhưng cột SAI thì ít thiên lệch
+hơn — và ``k=3`` cho nhiều lần đọc **sai** nhất. Đọc sai nguy hiểm hơn sót: một mã sai qua
+được ISO 6346 sẽ đi thẳng lên dashboard như sự thật.
+
+Nghi phạm là **tỉ lệ chữ**: ở ``k=3`` mã cao 34 px trong đầu vào, so với **23 px** đo được
+ở điểm vận hành. Phần lớn mức phóng đó đến từ việc vùng bị **cắt ở mép ảnh** — vùng nhỏ đi
+nhưng ``fit_long_side`` vẫn kéo cạnh dài về 640, nên chữ to lên. Sửa được bằng cách suy
+kích thước từ vùng DANH NGHĨA (trước khi cắt) thay vì vùng thực; chưa làm.
+
+Hai con số đo được cho ngữ cảnh mà detector **đang dùng khi chạy đúng** là 4,89 và 5,0:
 
 * Tính ngược 20 vùng của v1 (đang chạy ở cảng): vùng rộng gấp **4,89 lần** bề rộng mã.
 * Điểm vận hành đo trên mẫu đọc được: mã chiếm **20 %** bề rộng đầu vào detector, tức

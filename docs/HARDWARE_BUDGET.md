@@ -784,8 +784,27 @@ ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", v�
 | **Mã chiếm bề rộng đầu vào** | **20 %** | |
 
 20 % nghĩa là vùng crop rộng gấp **5 lần** cạnh dài của mã. Tính ngược 20 vùng của v1 cho
-**4,89 lần** — hai phép đo độc lập, cùng một con số. Đó là cơ sở cho
-`preprocess.CODE_CONTEXT`, cho phép suy vùng từ 4 điểm khoanh mã thay vì vẽ vùng rồi dò.
+**4,89 lần** — hai phép đo độc lập, cùng một con số. Đó là cơ sở của `roi_from_code`, cho
+phép suy vùng từ 4 điểm khoanh mã thay vì vẽ vùng rồi dò.
+
+`CODE_CONTEXT` **mặc định 3**, chọn làm mốc khởi đầu để bắt đầu gán nhãn: crop chỉ bằng
+36 % diện tích của 5. Số đo hiện có nghiêng về giá trị lớn hơn, và chỗ đáng lo là **kiểu
+hỏng**:
+
+| `k` | đúng | **SAI** | sót | mã chiếm | chữ cao trong det |
+|---:|---:|---:|---:|---:|---:|
+| **3** | 1 | **2** | 11 | 33 % | **34 px** |
+| 4 | 3 | 1 | 10 | 25 % | 26 px |
+| 5 | 4 | 1 | 9 | 20 % | 21 px |
+
+Cột "đúng" thiên lệch (mẫu chuẩn lấy từ chính vùng của v1); cột SAI thì ít hơn — và `k=3`
+đọc sai nhiều nhất, toàn kiểu nhầm ký tự (`KGHU3562503` → `KGKU3167006`). Đọc sai nguy hiểm
+hơn sót: mã sai qua được ISO 6346 đi thẳng lên dashboard như sự thật.
+
+Nghi phạm là **tỉ lệ chữ**: ở `k=3` mã cao 34 px trong đầu vào so với 23 px ở điểm vận
+hành. Phần lớn mức phóng đó đến từ vùng bị **cắt ở mép ảnh** — vùng nhỏ đi nhưng
+`fit_long_side` vẫn kéo cạnh dài về 640. Sửa được bằng cách suy kích thước từ vùng **danh
+nghĩa** (trước khi cắt); chưa làm.
 
 ⚠️ **Khung đầy đủ không thay được vùng crop** — và lý do không phải "thiếu ngữ cảnh":
 
