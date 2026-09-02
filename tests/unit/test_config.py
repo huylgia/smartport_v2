@@ -515,3 +515,21 @@ def test_duplicate_camera_code_is_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ConfigError, match="mã camera trùng"):
         load_crane(p, env={})
+
+
+def test_a_camera_can_declare_its_own_source_fps() -> None:
+    """⚠️ Đo 2026-09-02: camera ``..._1517`` phát **18 fps** trong khi mọi camera khác 30.
+
+    Một giá trị chung cả cẩu không diễn đạt nổi điều đó, và hệ quả không chỉ là một con số
+    xấu: ``drop_frame_interval`` suy từ nó, nên camera đó chạy 2,11 fps thay vì 3,33 (lệch
+    40 %) và ``PerceptionMessage.fps`` báo sai 30 ra ngoài dây.
+    """
+    crane = load_crane(GC03, env=ENV)
+    by_code = {c.code: c for c in crane.model_cameras}
+
+    odd = by_code["GC03_113_160_225_15_1517"]
+    assert odd.source_fps == 18.0
+    assert odd.drop_frame_interval == 5, "18/3.3 làm tròn = 5, không phải 9 của 30 fps"
+
+    others = [c for c in crane.model_cameras if c.code != odd.code]
+    assert all(c.source_fps == crane.source_fps for c in others), "còn lại lấy mặc định của cẩu"

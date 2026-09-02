@@ -56,6 +56,10 @@ class FrameJob:
     role: CameraRole
     frame_id: int
     frame_ts: float
+    source_fps: float
+    """fps của **camera này**, không phải của cẩu. Hai camera cùng cẩu có thể chạy khác
+    nhịp — đo được 18 vs 30 trên GC03 — và gửi số của cẩu ra ngoài là nói dối trên dây."""
+
     start_ts: float
     """Gốc trục thời gian của camera. ``PerceptionMessage`` mang cả hai để nơi nhận kiểm
     được ``frame_ts == start_ts + frame_id / fps`` thay vì phải tin."""

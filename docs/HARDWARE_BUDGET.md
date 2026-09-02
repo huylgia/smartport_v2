@@ -754,6 +754,55 @@ craneops-triton accuracy
 
 ---
 
+#### Chạy đủ hai nhánh, 30 phút (2026-09-02, máy dev)
+
+10 camera ghi hình + 3 camera chạy model, một tiến trình, `craneops-ds run --duration 1800`.
+
+**Ổn định — 44 mẫu cách nhau 30 s:**
+
+| | dải | đầu → cuối |
+|---|---|---|
+| file descriptor | 187-196 | 192 → 194 (**+2**) |
+| RSS | 1 184-1 246 MB | 1 236 → 1 207 (**-29 MB**) |
+| thread | 159-163 | 160 → 160 (**+0**) |
+| CPU | 19,1-28,8 % | trung vị 22,4 % |
+
+**10 997 suy luận, 10 997 broker ack, 0 bỏ, 0 lỗi.**
+
+⚠️ **Đo tiến trình nào.** PID 1 trong container DeepStream là `entrypoint.sh`, không phải
+ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", và hoàn toàn vô nghĩa.
+
+#### Một camera không chạy 30 fps (2026-09-02)
+
+Phiên trên lộ ra camera `..._1517` chỉ đạt **63 %** nhịp đặt trong khi hai camera kia đạt
+99,9 %. Không phải mất message: `Δframe_id` đúng bằng `drop_frame_interval` không sót lần
+nào. Nguồn thật mới là chỗ khác:
+
+| Camera | fps suy từ `Δframe_id / Δframe_ts` | khung / thời lượng của **đoạn ghi passthrough** |
+|---|---:|---|
+| `..._1517` | **19,00** | **500 / 27,78 s = 18,00 fps** |
+| `..._1510` | 30,00 | 900 / 30,00 s = 30,00 fps |
+| `..._1508` | 30,00 | 900 / 30,00 s = 30,00 fps |
+
+Đoạn ghi là passthrough nên nó chứa **đúng bitstream đã tới** — đây là phép đo độc lập với
+trục thời gian, và nó loại trừ khả năng lỗi ở phía ds_app.
+
+`source_fps` vốn là một giá trị chung cả cẩu, nên nó không diễn đạt nổi điều này. Hệ quả
+không chỉ là một con số xấu: `drop_frame_interval` suy từ nó (30/3,3 → 9 thay vì 18/3,3 →
+5), nên camera chạy **2,11 fps thay vì 3,33**, và `PerceptionMessage.fps` **báo 30 ra ngoài
+dây** cho một camera 18 fps. Nay khai được `source_fps` ngay trong dòng camera; sau khi sửa
+nó đạt 3,70/3,6 fps (102,7 %).
+
+#### Mất khung I trên đường truyền, không phải ở hàng đợi (2026-09-02)
+
+Cùng phiên 30 phút, bộ phát hiện báo **3 lần/camera** trên `..._1508`, `..._1513`,
+`..._1515` — *"hai keyframe cách 3,17 s, GOP là 1,67 s"*. Ba camera này **không decode**
+(role `ccode` chưa có model), nên NVDEC không liên quan; và bộ đếm `overruns` của hàng đợi
+ghi **bằng 0**, nên hàng đợi cũng không bỏ gì.
+
+Hai bộ phát hiện độc lập là thứ phân biệt được hai nguyên nhân đó. Còn lại: gói mất trên
+đường RTSP qua Internet công cộng — thứ ds_app không sửa được, chỉ đếm được.
+
 ### 6.3 Ghi hình 10 camera (2026-09-01, máy dev)
 
 `craneops-ds record --cam all --duration 90 --segment-sec 10`, GC03, 10 camera

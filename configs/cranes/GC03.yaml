@@ -69,7 +69,7 @@ cameras:
   crane:
     # KHÔNG có truck_lines: slot container xác định bằng khoảng cách container <-> đầu
     # xe, không bằng dải dọc mà đầu xe rơi vào. Xem docs/DESIGN_NOTES.md DN-001.
-    - {code: GC03_113_160_225_15_1517, stream: rtsp://113.160.225.15:1517//CH001.sdp, desc: Trần container, model_fps: 3.3}
+    - {code: GC03_113_160_225_15_1517, stream: rtsp://113.160.225.15:1517//CH001.sdp, desc: Trần container, model_fps: 3.3, source_fps: 18}
 
   # --- soi đáy, không chạy model -----------------------------------
   bottom:

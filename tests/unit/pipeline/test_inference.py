@@ -25,6 +25,7 @@ def a_job(code: str = "GC03_1_2_3_4_1517", role: CameraRole = CameraRole.CRANE) 
         role=role,
         frame_id=1,
         frame_ts=1788283539.0,
+        source_fps=30.0,
         start_ts=1788283530.0,
         image=np.zeros((4, 4, 3), dtype=np.uint8),
     )

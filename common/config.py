@@ -262,7 +262,12 @@ class CameraConfig(BaseModel):
         return self.source_fps if n <= 1 else self.source_fps / n
 
     source_fps: float = Field(default=0.0, ge=0.0)
-    """fps của nguồn, **bơm xuống** từ :class:`CraneConfig` — không khai trong thân."""
+    """fps của nguồn camera này.
+
+    Mặc định lấy từ :attr:`CraneConfig.source_fps`; **khai trong dòng camera để ghi đè**
+    khi camera đó chạy nhịp khác. Đo 2026-09-02: camera ``..._1517`` phát 18 fps còn mọi
+    camera khác 30 — dùng chung một số làm ``drop_frame_interval`` của nó lệch 40 %, và
+    ``PerceptionMessage.fps`` báo sai ra ngoài. Xem ``docs/HARDWARE_BUDGET.md`` §6.3."""
 
     @model_validator(mode="after")
     def _role_consistency(self) -> CameraConfig:
@@ -307,7 +312,12 @@ class CraneConfig(BaseModel):
     NULL/READY, tức trước khi thương lượng caps. Nên phải khai, và ds_app **đối chiếu lại**
     khi caps về — lệch thì báo, không để nhịp thật âm thầm khác nhịp đã tính.
 
-    Đo 2026-08-29: cả 10 camera GC03 là 30 fps (HARDWARE_BUDGET §6).
+    Đây là **mặc định cho mọi camera**; camera nào chạy nhịp khác thì khai ``source_fps``
+    ngay trong dòng của nó.
+
+    Đo 2026-08-29: cả 10 camera GC03 là 30 fps. Đo lại 2026-09-02 thì ``..._1517`` chỉ còn
+    **18 fps** — đếm từ bảng sample của chính đoạn ghi passthrough, nên đó là bitstream
+    thật đã tới, không phải suy đoán. Xem HARDWARE_BUDGET §6.3.
     """
 
     rtsp_credential: str = ""
@@ -353,7 +363,11 @@ class CraneConfig(BaseModel):
                         cam["role"] = role
                         cam["index"] = i
                         cam["credential"] = data.get("rtsp_credential", "")
-                        cam["source_fps"] = data.get("source_fps", 30.0)
+                        # Camera khai riêng thì GIỮ: `source_fps` của cẩu chỉ là mặc
+                        # định. Đo 2026-09-02 thấy camera 1517 phát 18 fps trong khi mọi
+                        # camera khác 30 — một giá trị chung không diễn đạt nổi điều đó, và
+                        # hệ quả là `drop_frame_interval` sai 40 % cho camera đó.
+                        cam.setdefault("source_fps", data.get("source_fps", 30.0))
         return data
 
     @model_validator(mode="after")

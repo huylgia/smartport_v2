@@ -162,7 +162,7 @@ def main() -> int:
                 role=job.role,
                 frame_id=job.frame_id,
                 start_ts=job.start_ts,
-                fps=crane.source_fps,
+                fps=job.source_fps,
                 frame_ts=job.frame_ts,
                 segment_hint=job.segment_hint,
                 detections=found,
