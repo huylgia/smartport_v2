@@ -36,7 +36,7 @@
 ## Sơ đồ
 
 ```
- 10 camera RTSP (live) — GC03: tất cả đều 2688×1520 @ 30 fps HEVC (đo 2026-08-29)
+ 10 camera RTSP (live) — GC03: tất cả 2688×1520 HEVC; nhịp 30 fps trừ 3 camera (18/27/24)
       │  rtspsrc → rtph265depay → h265parse config-interval=-1
       ▼
 ┌───────────────── ds_app (DeepStream, container) ─────────────────┐
@@ -81,8 +81,13 @@ bộ giải mã trước mỗi keyframe, nếu không mỗi segment sẽ không 
 
 ## Vì sao chỉ 8 trong 10 camera đi vào nhánh model
 
-Cả 10 camera đều phát 2688×1520 @ 30 fps. Nếu decode hết ở 30 fps thì tải NVDEC là
-**1 226 Mpixel/s ≈ 4,9× một luồng 4K30** — sát hoặc vượt trần một NVDEC của GA106.
+Cả 10 camera đều phát 2688×1520. Nhịp thì **không đồng nhất**: bảy camera 30 fps, còn
+`..._1517` 18, `..._1516` 27, `..._1509` 24 — đo 2026-09-02 bằng `craneops-ds probe`
+(HARDWARE_BUDGET §6.3). Lấy 30 fps cho cả mười là ước lượng **thiên cao**, và ở đây thiên
+cao là an toàn: ngân sách NVDEC tính theo trần.
+
+Nếu decode hết ở 30 fps thì tải NVDEC là **1 226 Mpixel/s ≈ 4,9× một luồng 4K30** — sát
+hoặc vượt trần một NVDEC của GA106.
 
 Cắt được hai camera ngay: **camera 2** không có vai trò xử lý nào (`CommonCamera.handle_frame`
 chỉ gọi `super()` — không làm gì), và **camera 9** (soi đáy) không chạy model, ảnh mosaic

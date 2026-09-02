@@ -1,13 +1,22 @@
-"""Chạy **nhánh model**: camera RTSP → gộp batch theo role → Triton → in kết quả.
+"""Chạy **riêng nhánh model** — chẩn đoán, không phải chế độ chạy thật.
 
-Đây là bước kiểm chứng đầu-cuối của Phase 3a. Nó trả lời ba câu mà test đơn vị không trả
-lời được, vì cả ba chỉ sai khi chạy thật:
+Chế độ thật là ``run.py``: nó dựng cả hai nhánh trên cùng một bộ nguồn, và chỉ ở đó
+``segment_hint`` mới được điền. File này cố tình dựng **một nửa**, để khi có sự cố còn tách
+được "nhánh model hỏng" khỏi "nhánh ghi hỏng" — hai thứ có cùng triệu chứng là không ra
+dữ liệu.
 
-1. ``pyds.get_nvds_buf_surface()`` có map được khung ra numpy đúng màu không.
-2. Trục thời gian suy-từ-PTS có khớp giữa nhánh ghi và nhánh model không.
-3. Ở nhịp thật, hàng đợi suy luận có bỏ khung nào không.
+Nó cũng là chỗ **tái hiện các tình huống hiếm** mà không phải chờ chúng tự xảy ra:
 
-Chưa đẩy Kafka — phần đó là bước kế. Ở đây kết quả in ra màn hình để đối chiếu bằng mắt.
+* ``--blackout-after S --blackout D`` — chặn dữ liệu của camera đầu tiên trong ``D`` giây.
+  Với muxer thì không phân biệt được với camera mất mạng: không dữ liệu, không EOS, không
+  lỗi. Đây là cách đo được rằng một đợt mất mạng 30 s làm ``start_ts + frame_id/fps`` tụt
+  lại đúng 30 s (HARDWARE_BUDGET §6.1).
+* ``--restart-after S`` — dựng lại nguồn đầu tiên qua ``replace_source``, tức chính đường
+  mà watchdog sẽ dùng. **Hiện là nơi duy nhất chạy thật đường đó**; nó từng lộ ra rằng
+  ``replace_source`` lặng lẽ không nối lại và camera im hẳn.
+* ``--source URL`` — trỏ mọi camera vào một RTSP server cục bộ mà ta **cắt được kết nối**,
+  thứ không làm được với camera thật ở cảng. Dùng nó để đo rằng ``nvurisrcbin`` nối lại
+  RTSP không reset PTS.
 
 ⚠️ **Phải cấp GPU bằng ``--gpus all``, không phải ``device=N``.** Pin GPU cấp CUDA compute
 nhưng không cấp node V4L2 của NVDEC, và khi đó pipeline đứng ở ``PREROLLING`` không một
@@ -16,7 +25,7 @@ thông báo lỗi nào. Xem ``docs/DESIGN_NOTES.md`` DN-014.
 Chạy::
 
     craneops-ds detect --role crane --duration 60
-    craneops-ds detect --role tcode --duration 60 --triton host:19001
+    craneops-ds detect --role tcode --duration 90 --no-bus
 """
 
 from __future__ import annotations

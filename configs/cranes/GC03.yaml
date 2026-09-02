@@ -84,6 +84,7 @@ cameras:
   # Xem CameraRole.EVIDENCE_ONLY trong common/enum.py.
   evidence_only:
     - {code: GC03_113_160_225_15_1509, stream: rtsp://113.160.225.15:1509//CH001.sdp, desc: Hông trái - Trước, source_fps: 24}
-# Nguồn thật đo 2026-08-29: cả 10 camera đều 2688x1520 @ 30 fps HEVC, GOP 50, IPPP.
+# Nguồn thật: cả 10 camera đều 2688x1520 HEVC, GOP 50, IPPP. Nhịp thì KHÔNG đồng nhất —
+# xem ghi chú `source_fps` ở đầu file và dòng của từng camera.
 # Lưu ý: `resolution`/`fps` ở tầng camera là ĐÍCH xử lý, không phải thuộc tính nguồn.
 # Chi tiết + ngân sách NVDEC: docs/HARDWARE_BUDGET.md §2.

@@ -319,16 +319,51 @@ lỗi) nhưng cách sửa hoàn toàn khác.
   ✅ nvurisrcbin          nguồn RTSP kèm tee trước decode
   ✅ nvv4l2decoder        decode phần cứng — thiếu quyền `video` thì treo PREROLLING
   ✅ nvstreammux          gộp nhiều nguồn thành batch, và là thứ TẠO RA metadata
-  ✅ nvinferserver        gọi Triton (nhánh model, Phase 3b)
+  ✅ nvvideoconvert       đổi sang RGBA — thiếu thì probe không map được khung ra numpy
   ✅ splitmuxsink         ghi segment
-  ✅ config + URL camera  GC03: 10 camera, 8 vào nhánh model
+  ✅ config + URL camera  GC03: 10 camera (…), 8 khai chạy model, 3 có model hôm nay
   ✅ /rec ghi được        /rec
 ```
 
-### 5.2 Ghi hình
+### 5.2 Dò nhịp camera — làm MỘT LẦN khi lắp cẩu mới
 
 ```bash
-craneops-ds record --cam all --duration 60                  # MỌI camera — hình dạng production
+craneops-ds probe                    # ~50 s, ghi passthrough rồi đếm khung trong file
+craneops-ds probe --duration 140     # kỹ hơn: nhiều đoạn, lấy trung vị
+```
+
+`source_fps` phải khai trong config và **không tự dò được lúc chạy**: `drop-frame-interval`
+chỉ đặt được ở NULL/READY (trước khi có khung nào), còn caps của nguồn khai `framerate=0/1`
+trên cả 10 camera. `probe` đo bằng cách đếm khung trong chính đoạn ghi passthrough — 0 %
+NVDEC, đúng cho cả camera chỉ-ghi — rồi in ra dòng để dán vào config.
+
+Đừng bỏ bước này. Đo trên GC03 thấy **3 trong 10 camera không chạy 30 fps** (18, 27, 24)
+trong khi config khai 30 cho tất cả; khai sai làm nhịp model lệch tới 40 % mà không gì báo.
+Kết quả **không tự ghi vào config**: camera đang rớt mạng lúc dò sẽ đo ra nhịp thấp, và
+chốt con số đó là chốt vĩnh viễn một lỗi.
+
+### 5.3 Chạy thật — ghi hình + suy luận
+
+```bash
+craneops-ds run                          # chạy mãi, Ctrl-C để dừng
+craneops-ds run --duration 1800          # 30 phút rồi tự dừng
+craneops-ds run --segment-sec 30 --keep-segments 6
+```
+
+Đây là chế độ production: **một** `nvurisrcbin` cho mỗi camera, nhánh ghi cắm vào tee
+trước decode, nhánh model lấy pad đã decode, cả hai dùng chung một `TimeSync`. Cần Triton
+và bus chạy trước (`craneops up`).
+
+Chỉ ở chế độ này `segment_hint` mới được điền — chỉ nhánh ghi biết đoạn nào chứa một
+khoảnh khắc, chỉ nhánh model gửi message, và `evidenced` cần cả hai để cắt clip.
+
+Bảng tổng kết lúc thoát báo: khung mất ở hàng đợi suy luận, message mất ở bus, nghi mất
+khung I ở nhánh ghi, và nhịp nguồn đo được so với nhịp khai.
+
+### 5.4 Ghi hình riêng — chẩn đoán nửa dưới
+
+```bash
+craneops-ds record --cam all --duration 60                  # MỌI camera — chỉ nhánh ghi
 craneops-ds record --cam ccode1 --duration 60               # một camera
 craneops-ds record --cam tcode2 --duration 0                 # chạy mãi, Ctrl-C để dừng
 craneops-ds record --cam ccode1 --duration 0 --segment-sec 60   # đoạn 60 giây thay vì 10
@@ -387,7 +422,7 @@ nvidia-smi dmon -s pucm      # cột enc VÀ dec đều PHẢI là 0 — kể c�
                              # xem HARDWARE_BUDGET §6.3
 ```
 
-### 5.3 Xem metadata DeepStream trả về
+### 5.5 Xem metadata DeepStream trả về
 
 ```bash
 craneops-ds record --cam ccode1 --duration 60 --meta
