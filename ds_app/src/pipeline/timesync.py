@@ -42,37 +42,63 @@ class TimeBase:
 
 
 class TimeSync:
-    """Neo thời gian theo từng camera. **Ghi lần đầu thắng.**
+    """Neo thời gian theo từng camera. **Ghi lần đầu thắng — trừ khi PTS đứt.**
 
     Ai chạm vào khung/buffer trước sẽ đặt neo — có thể là nhánh ghi, có thể là probe. Cái
-    nào không quan trọng, miễn là **chỉ một** neo tồn tại cho mỗi camera.
+    nào không quan trọng, miễn là **một** neo phục vụ cả hai nhánh; đó là điều giữ cho cửa
+    sổ cắt clip không lệch giữa chúng.
+
+    ⚠️ Một ngoại lệ, và nó bắt buộc: **PTS lùi**. Nguồn RTSP nối lại có thể phát PTS từ
+    đầu, và một neo cũ áp lên PTS mới cho ra dấu thời gian ở **quá khứ** — clip evidence sẽ
+    được cắt ở chỗ chưa từng xảy ra chuyện gì, và không có gì báo. Gặp lùi thì neo lại, và
+    ĐẾM (:attr:`resets`) để nó không im lặng.
+
+    PTS nhảy **tiến** thì không neo lại: đó là camera mất mạng, chuyện thường, và đã đo —
+    30 s mất mạng cho PTS tiến đúng 30 s (HARDWARE_BUDGET §6.1). Neo lại ở đó sẽ xoá mất
+    thông tin thật.
 
     Đọc không cần khoá: dict chứa dataclass đông cứng và ``dict.get`` là nguyên tử.
     """
 
     def __init__(self) -> None:
         self._bases: dict[str, TimeBase] = {}
+        self._last_pts: dict[str, float] = {}
         self._lock = threading.Lock()
+        self.resets: dict[str, int] = {}
+        """Số lần phải neo lại vì PTS lùi, theo từng camera. Khác 0 nghĩa là nguồn có đứt
+        quãng — mọi dấu thời gian trước và sau nằm trên hai trục khác nhau."""
 
     def get(self, camera_code: str) -> TimeBase | None:
         return self._bases.get(camera_code)
 
     def anchor(self, camera_code: str, pts_sec: float, now_unix: float) -> TimeBase | None:
-        """Lấy neo của camera, đặt nó từ khung này nếu chưa có.
+        """Lấy neo của camera, đặt nó từ khung này nếu chưa có hoặc nếu PTS đã lùi.
 
         Trả ``None`` khi chưa neo được — PTS không hợp lệ. Nơi gọi phải chịu được điều đó:
         vài buffer đầu của nguồn RTSP có thể không có PTS.
         """
-        existing = self._bases.get(camera_code)
-        if existing is not None:
-            return existing
         if pts_sec <= 0 or now_unix <= 0:
             return None
+
+        existing = self._bases.get(camera_code)
+        last = self._last_pts.get(camera_code)
+        # So với PTS gần nhất, KHÔNG so với `first_pts_sec`: sau một đợt mất mạng dài thì
+        # PTS vẫn lớn hơn mốc đầu rất nhiều, nên so với mốc đầu sẽ không bao giờ thấy đứt.
+        went_backwards = last is not None and pts_sec < last
+
+        if existing is not None and not went_backwards:
+            self._last_pts[camera_code] = pts_sec
+            return existing
+
         with self._lock:
             # Kiểm lại trong khoá: hai luồng có thể cùng tới đây.
             found = self._bases.get(camera_code)
-            if found is not None:
+            if found is not None and not went_backwards:
+                self._last_pts[camera_code] = pts_sec
                 return found
+            if found is not None:
+                self.resets[camera_code] = self.resets.get(camera_code, 0) + 1
             base = TimeBase(base_unix=now_unix, first_pts_sec=pts_sec)
             self._bases[camera_code] = base
+            self._last_pts[camera_code] = pts_sec
             return base

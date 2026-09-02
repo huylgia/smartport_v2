@@ -285,6 +285,13 @@ def main() -> int:
         f"BỎ {stats['dropped']}  LỖI {stats['failed']}  LỖI-NHẬN {stats['sink_failed']}"
         + (f"\n  lỗi đầu tiên: {client.stats.last_error}" if client.stats.last_error else "")
     )
+    if sync.resets:
+        # Neo lại nghĩa là PTS của nguồn đã lùi — mọi dấu thời gian trước và sau nằm trên
+        # hai trục khác nhau. Nó phải hiện ra, không được chỉ nằm im trong một dict.
+        print(  # noqa: T201
+            "  ⚠️ neo lại thời gian (PTS lùi): "
+            + ", ".join(f"{c} x{n}" for c, n in sorted(sync.resets.items()))
+        )
     if bus is not None:
         b = bus.stats.snapshot()
         print(  # noqa: T201

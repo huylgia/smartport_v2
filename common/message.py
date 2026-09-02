@@ -231,8 +231,16 @@ class PerceptionMessage(_Msg):
     """Chỉ số khung **gốc**, đã khôi phục qua ``restore_frame_id``. Xem timebase."""
 
     start_ts: Timestamp
-    """Thời điểm unix của **khung ``frame_id == 0``** — tức khung đầu tiên producer thấy,
-    không phải gốc thời gian của nguồn RTSP. Hai mốc đó lệch nhau đúng PTS của khung đầu."""
+    """Mốc neo **đang có hiệu lực** cho camera này — thời điểm unix ứng với khung đầu tiên
+    của trục thời gian hiện tại, không phải gốc PTS của nguồn RTSP.
+
+    Giá trị này **đổi** khi producer phải neo lại, tức khi PTS của nguồn lùi (RTSP nối lại
+    và phát PTS từ đầu). Đó là công dụng chính của trường này: hai message có ``start_ts``
+    khác nhau nằm trên **hai trục thời gian khác nhau**, và ``frame_id`` của chúng không so
+    sánh được với nhau. Không có trường này thì consumer không có cách nào biết điều đó.
+
+    ⚠️ **Đừng dùng nó để tính thời gian.** ``start_ts + frame_id / fps`` chỉ đúng khi không
+    khung nào mất — xem :attr:`frame_ts`."""
 
     fps: float = Field(gt=0)
     """FPS của **nguồn** (30 với smartport), không phải fps sau decimate."""
