@@ -1403,6 +1403,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "tritonclient", extra = ["grpc"] },
     { name = "types-pyyaml" },
 ]
 export = [
@@ -1445,6 +1446,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "shapely", specifier = ">=2.0,<3" },
+    { name = "tritonclient", extras = ["grpc"], marker = "extra == 'dev'", specifier = ">=2.44,<3" },
     { name = "tritonclient", extras = ["grpc"], marker = "extra == 'triton'", specifier = ">=2.44,<3" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "uvicorn", specifier = ">=0.29,<1" },

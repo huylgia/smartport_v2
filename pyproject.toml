@@ -35,6 +35,8 @@ oracle = ["oracledb>=2.2,<3"]
 # tools/export_models.py: .t7 -> ONNX -> config.pbtxt -> TensorRT plan.
 export = ["onnx>=1.16,<2"]
 dev = [
+    # ds_app gọi Triton qua đây; có trong venv dev để test worker chạy được và mypy thấy.
+    "tritonclient[grpc]>=2.44,<3",
     "ruff>=0.6",
     "mypy>=1.11",
     "pytest>=8",

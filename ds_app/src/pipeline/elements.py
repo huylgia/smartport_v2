@@ -16,9 +16,11 @@ __all__ = [
     "DEC_QUEUE",
     "MUXER",
     "NVURISRCBIN",
+    "NVVIDEOCONVERT",
     "RECORD_QUEUE",
     "SOURCE_QUEUE",
     "SPLITMUX",
+    "STREAMMUX",
     "link",
     "link_pads",
     "make",
@@ -65,6 +67,46 @@ DEC_QUEUE: dict[str, Any] = {
 }
 """Chặn cho hàng đợi nội bộ của ``nvurisrcbin``. Ghép vào sau khi nó tự dựng — xem
 ``sources._bound_dec_queue``."""
+
+STREAMMUX: dict[str, Any] = {
+    # ⚠️ `batch-size` KHÔNG có ở đây: nó bằng số camera của role và do nơi dựng đặt. Một
+    # giá trị mặc định ở đây sẽ âm thầm đúng cho role này và sai cho role kia.
+    #
+    # Kích thước khung ra muxer. Giữ NGUYÊN độ phân giải nguồn (2688x1520): mọi phép co
+    # giãn ở đây là một phép nội suy KHÁC `cv2.INTER_CUBIC` mà model được huấn luyện với,
+    # và HARDWARE_BUDGET §6.2 đo được rằng đổi nội suy dịch hộp tới 17,2 px trong khi
+    # recall không đổi — tức không có gì báo. Muxer chỉ gộp batch; việc co giãn để đúng
+    # 416x416 là của `internal/pkg/vision/pico.py`.
+    "width": 2688,
+    "height": 1520,
+    # 1 = nguồn live. Không đặt thì muxer chờ đủ batch mới đẩy, và với camera thưa khung
+    # (crane 3,3 fps) nó chờ mãi.
+    "live-source": 1,
+    # Micro giây. Hết thời gian này thì đẩy batch dù chưa đủ. 40 ms ≈ một khung 25 fps:
+    # đủ để hai camera tcode cùng nhịp gộp được, đủ ngắn để một camera lẻ không phải chờ.
+    "batched-push-timeout": 40_000,
+    # Số buffer trong pool NVMM. Mặc định 4; nới lên vì probe giữ buffer trong lúc chép
+    # khung ra host, và pool cạn thì muxer chặn ngược lên decoder.
+    "buffer-pool-size": 8,
+}
+"""Thuộc tính ``nvstreammux`` của nhánh model — MỘT muxer cho MỖI role.
+
+Một muxer chung cho mọi role thì không tách được: muxer cho ra **một** batch, và không có
+cách nào bảo ``nvinferserver`` chỉ xử lý vài nguồn trong đó. ``nvdsmetamux`` giải bài toán
+khác — nhiều model trên **cùng** một luồng — chứ không phải bài này, vốn có tập camera rời
+nhau theo role.
+
+⚠️ Cần ``USE_NEW_NVSTREAMMUX=no`` trong môi trường (đặt sẵn ở ``build/ds_app.Dockerfile``).
+Mux mới của DS8 bỏ qua toàn bộ thuộc tính ở đây và **không bao giờ đẩy một batch nào**, im
+lặng."""
+
+NVVIDEOCONVERT: dict[str, Any] = {
+    # 3 = NVBUF_MEM_CUDA_UNIFIED. BẮT BUỘC trên dGPU để `pyds.get_nvds_buf_surface()` map
+    # được khung ra numpy. Mặc định (0) cấp bộ nhớ chỉ GPU thấy; probe gọi vào đó sẽ nhận
+    # lỗi map hoặc dữ liệu rác tuỳ phiên bản.
+    "nvbuf-memory-type": 3,
+}
+"""``nvvideoconvert`` đứng trước probe, đổi sang RGBA ở bộ nhớ CPU đọc được."""
 
 RECORD_QUEUE: dict[str, Any] = {
     # Chặn theo THỜI GIAN, không theo số buffer: một ngưỡng tính bằng buffer được viết cho

@@ -74,6 +74,19 @@ services:
         ${META:+--show-meta}
     restart: "no"
 
+  # --- nhánh model: camera -> Triton -----------------------------------------
+  # Cần Triton chạy trước (`craneops-triton up`). Nó nằm trên network `craneops` nên
+  # địa chỉ là tên service, không phải localhost.
+  detect:
+    <<: *ds
+    command: >
+      python3 ds_app/cmd/detect.py
+        --role ${ROLE:-all}
+        --duration ${DUR:-60}
+        --triton ${TRITON:-triton:8001}
+        ${QUIET:+--quiet}
+    restart: "no"
+
   # --- kiểm môi trường -------------------------------------------------------
   # Chạy trước khi nghi ngờ bất cứ điều gì khác: nó phân biệt "image hỏng" với
   # "cấu hình hỏng".

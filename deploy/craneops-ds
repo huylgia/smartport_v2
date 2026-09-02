@@ -9,6 +9,7 @@
 #: logs           | 40 dòng log cuối
 #: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
 #: record         | Ghi hình một camera, KHÔNG suy luận
+#: detect         | Chạy nhánh model: camera -> Triton -> kết quả
 #: clean          | Xoá segment đã ghi
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
 
@@ -101,6 +102,33 @@ cmd_record() {
   )
 }
 
+cmd_detect() {
+  local role=all dur=60 triton="" quiet=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --role) role="$2"; shift 2 ;;
+      --duration) dur="$2"; shift 2 ;;
+      --triton) triton="$2"; shift 2 ;;
+      --quiet) quiet=1; shift ;;
+      -h|--help)
+        printf 'craneops-ds detect [--role crane|tcode|all] [--duration GIÂY] [--triton ĐỊA_CHỈ] [--quiet]\n\n'
+        printf '  --role      role nào chạy model; `all` là mọi role có camera\n'
+        printf '  --duration  thời gian CHẠY; 0 = chạy mãi (Ctrl-C để dừng)\n'
+        printf '  --triton    gRPC của Triton (mặc định triton:8001 trên network craneops)\n'
+        printf '  --quiet     chỉ in tổng kết, không in từng khung\n'
+        return 0 ;;
+      *) die "tham số không hợp lệ cho detect: $1  (--help để xem)" ;;
+    esac
+  done
+  require_docker
+  # Cùng cái bẫy như `record`: phép gán sinh sau khai triển bị coi là tên lệnh.
+  (
+    export ROLE="$role" DUR="$dur" QUIET="$quiet"
+    if [ -n "$triton" ]; then export TRITON="$triton"; fi
+    compose run --rm detect
+  )
+}
+
 cmd_clean() {
   # Chạy trong container: file do container ghi thuộc root, user thường xoá không được.
   require_docker
@@ -109,7 +137,7 @@ cmd_clean() {
 }
 
 case "${1:-}" in
-  build|up|down|status|logs|doctor|record|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|record|detect|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-ds <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac

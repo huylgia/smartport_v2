@@ -75,7 +75,14 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         "pydantic>=2.7,<3" \
         "pyyaml>=6,<7" \
         "numpy>=1.26,<2" \
-        "loguru>=0.7,<0.8"
+        "loguru>=0.7,<0.8" \
+        "tritonclient[grpc]>=2.41,<3"
+# tritonclient: ds_app gọi model BLS của Triton qua gRPC. Chỉ extra `grpc` — `http` kéo
+# thêm aiohttp/geventhttpclient mà nhánh này không dùng.
+#
+# ⚠️ KHÔNG cần opencv ở đây. Phép resize về 416x416 nằm trong BLS phía Triton, và để nó ở
+# đó là cố ý: một bản cv2 thứ hai trong image này là một chỗ nữa để phiên bản OpenCV lệch
+# nhau, mà `INTER_CUBIC` khác bản là hộp lệch tới 17 px (HARDWARE_BUDGET §6.2).
 
 # Không có CMD mặc định: compose chọn chế độ chạy (record / full pipeline).
 CMD ["python3", "-c", "import pyds, gi; print('ds_app image sẵn sàng')"]

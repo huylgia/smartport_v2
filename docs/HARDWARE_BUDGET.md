@@ -371,6 +371,8 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-02 | dev | Nội suy resize cho PicoDet | `CUBIC` vs `LINEAR`: recall **bằng nhau**, hộp lệch **tới 17,2 px** | §6.2 |
 | 2026-09-02 | dev | BLS `craneops_crane`/`craneops_tcode` | hộp khớp đường trực tiếp **40/40** · phân loại gộp batch khớp gọi lẻ **59/59** | §6.2 |
 | 2026-09-02 | dev | Gửi khung nguyên 12,26 MB qua gRPC | **0 khung trễ tới x8** tải mục tiêu · gãy ở x16 · GPU 9 % | §6.1 |
+| 2026-09-02 | dev | Nhánh model chạy thật, crane + tcode | **333/333 khung, 0 bỏ, 0 lỗi** · 98 % nhịp đặt | §6.1 |
+| 2026-09-02 | dev | Thứ tự kênh khung DeepStream | RGBA ⇒ phải đảo; sai kênh điểm tụt **0,932 → 0,507** | §6.2 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -522,6 +524,25 @@ thưa, không phải xếp hàng. Đừng đọc nó thành dấu hiệu quá t�
 **tới 17,2 px** trong khi recall không đổi — tức bảng số tổng sẽ không báo gì. Muốn đổi thì
 phải đo lại từng hộp trước.
 
+#### Nhánh model đầu-cuối — crane + tcode (2026-09-02, máy dev)
+
+Ba camera thật qua RTSP, 46 giây, model BLS trên Triton:
+
+| Camera | Role | Khung | Đạt nhịp đặt |
+|---|---|---:|---:|
+| `..._1517` | crane | 151 | 3,27 / 3,3 fps (98,1 %) |
+| `..._1510` | tcode | 91 | 1,97 / 2,0 fps (98,5 %) |
+| `..._1512` | tcode | 91 | 1,97 / 2,0 fps (98,5 %) |
+
+**333 gửi, 333 xong, 0 bỏ, 0 lỗi.** Chỉ số khung nhảy đúng bước decimate và dấu thời gian
+cách đều, nên `restore_frame_id` + neo PTS hoạt động đúng trên nguồn thật.
+
+⚠️ **Đừng chạy role chưa có model BLS.** `CameraRole.runs_model` nói role đó *rốt cuộc* sẽ
+chạy model; `BLS_FOR_ROLE` nói hôm nay đã có model chưa. Trộn hai câu đó lại thì `ccode`
+lọt vào `--role all`: đo được **1 503 lỗi trong 60 giây** (5 camera decode để mỗi khung ném
+`KeyError`), trong khi hai role kia vẫn chạy đúng nên bảng tổng kết trông gần như bình
+thường.
+
 ### 6.2 Độ chính xác — đo 2026-08-30
 
 Công cụ: `tools/golden/accuracy.py` (so với **nhãn**), `tools/golden/parity_stages.py` và
@@ -537,6 +558,23 @@ Công cụ: `tools/golden/accuracy.py` (so với **nhãn**), `tools/golden/parit
 | `craneops_truckitems_pico` | `det-truckItems/samples` | 111 | recall / prec @IoU 0,5 | **98,7 % / 98,7 %** |
 | `craneops_truckhead_pico` | `det-truckHead/samples` | 100 | recall / prec @IoU 0,5 | **97,8 % / 99,3 %** |
 | `craneops_ccode_det_{h,v}` | — | — | — | **không có tập dữ liệu** |
+
+#### Thứ tự kênh khung lấy từ DeepStream (2026-09-02)
+
+`pyds.get_nvds_buf_surface()` trên caps `format=RGBA` trả **RGB** ở ba kênh đầu, nên phải
+đảo thành BGR trước khi đưa vào model. Kiểm bằng mắt trên một khung camera cẩu: bản đã đảo
+cho cẩu vàng / thân tàu xanh / áo bảo hộ cam; bản không đảo cho cẩu xanh lơ, container tím,
+áo bảo hộ xanh.
+
+Cùng khung đó qua `craneops_truckitems_pico`:
+
+| | số vật | điểm cao nhất |
+|---|---:|---:|
+| Đúng kênh (BGR) | 3 | **0,932** |
+| Sai kênh (RGB) | 3 | 0,507 |
+
+Sai kênh **vẫn ra đúng số vật** — nên không có gì báo. Nhưng `Crane01Config.head_thresh`
+là 0,6, nên 0,507 bị loại sạch và `CRANE01` không gán được lane nào.
 
 Hai model pico đo lại 2026-09-02 với `INTER_CUBIC` (phép nội suy chúng được huấn luyện
 với) thay cho `INTER_LINEAR` mà công cụ dùng nhầm trước đó. **Recall không đổi** ở cả hai;
