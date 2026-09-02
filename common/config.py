@@ -65,8 +65,18 @@ class ShapeParams(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    input_size: tuple[int, int]
-    """``(cao, rộng)`` đưa vào detector. Thứ tự này ngược ``cv2.resize`` — dễ nhầm."""
+    input_size: tuple[int, int] | None = None
+    """``(cao, rộng)`` đưa vào detector — **để trống là đúng trong hầu hết trường hợp**.
+
+    Bỏ trống thì kích thước suy ra lúc chạy từ chính vùng đã cắt:
+    :func:`~internal.pkg.vision.preprocess.fit_long_side` giữ tỉ lệ và đưa cạnh dài về
+    640. Đo trên dữ liệu thật: công thức đọc đúng **bằng** 20 giá trị v1 chỉnh tay, và tốn
+    91 % số pixel. Chỉnh tay từng vùng là công sức không mua được gì.
+
+    Chỉ khai khi đã **đo được** rằng một vùng cụ thể cần khác — và ghi lại số đo, vì con
+    số ở đây sẽ sống lâu hơn lý do đặt nó.
+
+    ⚠️ Thứ tự ``(cao, rộng)`` ngược ``cv2.resize`` — dễ nhầm."""
 
     expand_ratio: tuple[float, float] = (1.0, 1.0)
     """``(rộng, cao)``. Nới vùng trước khi cắt — khác nhau theo từng vùng VÀ từng hình

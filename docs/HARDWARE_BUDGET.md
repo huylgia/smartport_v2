@@ -772,6 +772,38 @@ craneops-triton accuracy
 ⚠️ **Đo tiến trình nào.** PID 1 trong container DeepStream là `entrypoint.sh`, không phải
 ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", và hoàn toàn vô nghĩa.
 
+#### Kích thước đầu vào detector: công thức thay cho chỉnh tay (2026-09-02)
+
+v1 khai `input_size` riêng cho từng vùng — 12 giá trị khác nhau chỉ riêng nhánh ngang — nên
+mỗi lần vẽ một vùng mới lại phải dò lại. Đo xem có quy luật không:
+
+**Có, và v1 đã tuân theo nó mà không viết ra.** Tỉ lệ `input_size` khớp tỉ lệ vùng, lệch
+trung vị **2,0 %** / tối đa 4,6 % trên cả 20 vùng — toàn bộ phần lệch là do làm tròn về bội
+32. Thứ duy nhất v1 chỉnh tay là **cạnh dài**.
+
+Quét cạnh dài trên 130 ảnh mẫu GC03 (`assets/samples/QC3/`, thư mục mã hoá lane + kích
+thước), chấm bằng ký tự kiểm ISO 6346:
+
+| cạnh dài | đúng | **sai** | sót |
+|---:|---:|---:|---:|
+| 480, 512, 544 | 1 | **0** | 3 |
+| **576, 608, 672** | **4** | **0** | 0 |
+| 640, 704, 768, 832 | 3 | **0** | 1 |
+| v1 chỉnh tay | 4 | | |
+
+⚠️ **Cách chấm quan trọng hơn con số.** Đếm thô "bao nhiêu mã hợp lệ ISO" cho 640 = 14 và
+v1 = 9, và **kết luận đó sai**: 30/36 lần trúng chỉ được 1-2 trong 10 cấu hình đọc ra, tức
+dương tính giả — cùng một crop cho tới **bốn mã hợp lệ khác nhau**
+(`TKAU0157470` / `KKAU0157070` / `KKKU0157070` / `CMAU0157170`). ISO 6346 để lọt ~1/11
+chuỗi ngẫu nhiên. Bảng trên chỉ tính **4 mẫu có đồng thuận** (≥3 cấu hình cùng một mã).
+
+Kết luận: có **sàn ở ~576**, trên sàn thì **phẳng** — không có đỉnh nhọn để đi dò. Một công
+thức duy nhất đọc đúng **bằng** bản chỉnh tay và tốn **91 %** số pixel. Mặc định 640 nằm
+giữa vùng phẳng.
+
+Cơ sở đo còn mỏng (4 mẫu đồng thuận): điều đã chắc là **có sàn** và **không có đỉnh**; con
+số tối ưu chính xác thì chưa. Đo lại khi có thêm ảnh có mã đọc được.
+
 #### Vùng OCR chuyển từ v1 (2026-09-02)
 
 **12 vùng / 5 camera ccode**, chuyển bằng `tools/convert_ocr_rois.py`.

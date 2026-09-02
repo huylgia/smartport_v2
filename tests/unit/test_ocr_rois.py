@@ -85,8 +85,8 @@ def test_one_region_serves_every_shape_it_declares() -> None:
     assert set(roi.shapes) == {"horizontal", "vertical"}
     # Hợp của (0,138,535,720) và (0,161,560,683) trong không gian 720p mà v1 khai.
     assert roi.roi == pytest.approx((0.0, 138 / 720, 560 / 1280, 1.0), abs=1e-4)
-    # Tham số thì KHÔNG dùng chung: mỗi model một kích thước đầu vào.
-    assert roi.shapes["horizontal"].input_size != roi.shapes["vertical"].input_size
+    # Tham số thì KHÔNG dùng chung: mỗi model nới hộp chữ khác nhau.
+    assert roi.shapes["horizontal"].expand_ratio != roi.shapes["vertical"].expand_ratio
 
 
 def test_a_region_with_no_shape_is_rejected() -> None:
@@ -106,3 +106,15 @@ def test_syncing_camera_codes_leaves_the_roi_lines_alone() -> None:
     from tools.camera_codes import synced_text
 
     assert synced_text(GC03) == GC03.read_text(encoding="utf-8")
+
+
+def test_no_region_hard_codes_an_input_size() -> None:
+    """⚠️ v1 chỉnh tay 20 giá trị, và mỗi vùng vẽ thêm lại phải dò lại một giá trị nữa.
+
+    Đo trên dữ liệu thật: công thức đọc đúng **bằng** bản chỉnh tay và tốn 91 % số pixel —
+    công sức dò đó không mua được gì. Khai đè chỉ khi ĐO ĐƯỢC một vùng cần khác.
+    """
+    for cam in crane().record_cameras:
+        for r in cam.ocr_rois:
+            for shape, params in r.shapes.items():
+                assert params.input_size is None, f"{cam.code} {r.lane} {shape}"

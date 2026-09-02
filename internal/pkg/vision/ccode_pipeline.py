@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from internal.pkg.vision import dbpost, textcrop
+from internal.pkg.vision import dbpost, preprocess, textcrop
 from internal.pkg.vision.ctc import CtcConfig, decode
 from internal.pkg.vision.preprocess import batch_to_tensor, to_tensor
 
@@ -52,7 +52,10 @@ DEFAULT_DET_SIZE = (352, 640)
 class RoiParams:
     """Tham số của MỘT vùng OCR. Tương ứng một phần tử ``ocr_rois`` trong config cẩu."""
 
-    det_size: tuple[int, int] = DEFAULT_DET_SIZE
+    det_size: tuple[int, int] | None = None
+    """Bỏ trống ⇒ suy từ vùng bằng :func:`~internal.pkg.vision.preprocess.fit_long_side`."""
+
+    det_long_side: int = preprocess.DET_LONG_SIDE
     bitmap_threshold: float = 0.1
     box_threshold: float = 0.2
     expand_ratio: tuple[float, float] = (1.0, 1.0)
@@ -81,9 +84,14 @@ class RoiParams:
                 raise TypeError(msg)
             return (float(value[0]), float(value[1]))
 
-        det_h, det_w = pair("det_size", DEFAULT_DET_SIZE)
+        raw_size = raw.get("det_size")
         return cls(
-            det_size=(int(det_h), int(det_w)),
+            # Bỏ trống ⇒ để `run` tự suy từ vùng. KHÔNG đặt mặc định cứng ở đây: một giá
+            # trị cố định áp cho mọi vùng sẽ bóp méo tỉ lệ của phần lớn chúng.
+            det_size=(lambda p: (int(p[0]), int(p[1])))(pair("det_size", (0.0, 0.0)))
+            if raw_size is not None
+            else None,
+            det_long_side=int(number("det_long_side", float(preprocess.DET_LONG_SIDE))),
             bitmap_threshold=number("bitmap_threshold", 0.1),
             box_threshold=number("box_threshold", 0.2),
             expand_ratio=pair("expand_ratio", (1.0, 1.0)),
@@ -147,8 +155,13 @@ class CCodePipeline:
         if image.size == 0:
             return [], Stats()
 
-        tensor, scale = to_tensor(image, params.det_size, interpolation=cv2.INTER_CUBIC)
-        bitmap = np.asarray(self._det_infer(tensor), dtype=np.float32).reshape(params.det_size)
+        # Suy kích thước từ CHÍNH vùng đã cắt, không lấy từ config: nó tự đúng khi camera
+        # đổi độ phân giải, và không ai phải dò lại mỗi lần vẽ một vùng mới.
+        det_size = params.det_size or preprocess.fit_long_side(
+            image.shape[0], image.shape[1], params.det_long_side
+        )
+        tensor, scale = to_tensor(image, det_size, interpolation=cv2.INTER_CUBIC)
+        bitmap = np.asarray(self._det_infer(tensor), dtype=np.float32).reshape(det_size)
 
         boxes = dbpost.decode(
             bitmap,

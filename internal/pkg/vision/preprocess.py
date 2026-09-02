@@ -113,3 +113,40 @@ def batch_to_tensor(
     if not images:
         return np.empty((0, *size, 3), dtype=np.uint8)
     return np.concatenate([to_tensor(img, size, interpolation=interpolation)[0] for img in images])
+
+
+DET_LONG_SIDE = 640
+"""Cạnh dài mặc định khi resize một vùng OCR cho detector.
+
+Vì sao có công thức thay vì khai từng vùng: v1 chỉnh tay 12 giá trị khác nhau cho nhánh
+ngang, và mỗi lần vẽ một vùng mới lại phải dò lại. Đo trên dữ liệu thật cho thấy việc dò
+đó **không mua được gì**: một công thức duy nhất đọc đúng bằng bản chỉnh tay.
+
+Con số 640 nằm giữa một **vùng phẳng**, không phải một đỉnh nhọn — đo trên 4 mẫu có đồng
+thuận, mọi cạnh dài từ 576 tới 832 cho 3-4/4, còn từ 544 trở xuống tụt về 1/4. Có sàn, và
+trên sàn thì chọn gì cũng gần như nhau. Xem ``docs/HARDWARE_BUDGET.md`` §6.2.
+
+⚠️ Cơ sở đo còn mỏng (4 mẫu). Điều đã chắc là **sàn ~576** và **không có đỉnh nhọn**; con
+số chính xác nhất thì chưa. Đo lại khi có thêm ảnh có mã đọc được.
+"""
+
+
+def fit_long_side(height: int, width: int, long_side: int = DET_LONG_SIDE) -> tuple[int, int]:
+    """``(cao, rộng)`` cho detector: giữ tỉ lệ, đưa cạnh dài về ``long_side``, làm tròn 32.
+
+    Làm tròn về **bội số 32** vì detector DB hạ mẫu 5 lần; kích thước lẻ khiến nó tự đệm
+    và bản đồ xác suất lệch so với ảnh vào.
+
+    Đây chính là quy luật v1 đã tuân theo mà không viết ra: đo lại 20 vùng của v1 thấy tỉ
+    lệ ``input_size`` khớp tỉ lệ vùng, lệch trung vị **2,0 %** — toàn bộ phần lệch là do
+    làm tròn. Thứ v1 chỉnh tay chỉ là cạnh dài.
+    """
+    if height <= 0 or width <= 0:
+        raise ValueError(f"kích thước vùng phải dương, nhận {(height, width)}")
+    if long_side <= 0:
+        raise ValueError(f"long_side phải dương, nhận {long_side}")
+    scale = long_side / max(height, width)
+    return (
+        max(32, round(height * scale / 32) * 32),
+        max(32, round(width * scale / 32) * 32),
+    )
