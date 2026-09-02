@@ -9,6 +9,7 @@
 #: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
 #: topics         | Tạo mọi topic trong hợp đồng message
 #: tail           | Đọc message mới nhất của một topic
+#: ui             | Địa chỉ giao diện xem topic (Redpanda Console)
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
 
 compose() {
@@ -29,6 +30,7 @@ cmd_up() {
     sleep 2
   done
   note "Redpanda: Kafka :$(env_value build/.env.bus BUS_PORT 19092)  admin :$(env_value build/.env.bus BUS_ADMIN_PORT 19644)"
+  note "giao diện: http://localhost:$(env_value build/.env.bus CONSOLE_PORT 19080)"
   cmd_topics
 }
 
@@ -41,6 +43,9 @@ cmd_status() {
     return 0
   fi
   row "broker" "$(docker inspect -f '{{.State.Health.Status}}' craneops-redpanda 2>/dev/null)" 28
+  if docker ps --format '{{.Names}}' | grep -qx craneops-console; then
+    row "giao diện" "http://localhost:$(env_value build/.env.bus CONSOLE_PORT 19080)" 28
+  fi
   # `rpk topic list` không cho số message; `describe -p` mới có, ở cột HIGH-WATERMARK.
   # ⚠️ Đọc cột theo TÊN, không theo chỉ số: `$5` là LOG-START-OFFSET (luôn 0 khi chưa dọn
   # log), nên bảng sẽ báo "0 message" cho mọi topic — trông như broker rỗng trong khi nó
@@ -83,6 +88,19 @@ print(" ".join(re.findall(r"= \"([^\"]+)\"", block)))' 2>/dev/null)
   return 0
 }
 
+cmd_ui() {
+  require_docker
+  local port; port=$(env_value build/.env.bus CONSOLE_PORT 19080)
+  if ! docker ps --format '{{.Names}}' | grep -qx craneops-console; then
+    note "console CHƯA chạy — bật bằng: craneops-bus up"
+    return 0
+  fi
+  row "giao diện" "http://localhost:${port}" 28
+  row "trạng thái" "$(curl -s -o /dev/null -w '%{http_code}' "localhost:${port}/" 2>/dev/null || echo 'không gọi được')" 28
+  note "máy khác truy cập: thay localhost bằng IP máy này (cổng đã publish ra 0.0.0.0)"
+  return 0
+}
+
 cmd_tail() {
   require_docker
   [ $# -ge 1 ] || die "cần tên topic. Xem: craneops-bus status"
@@ -91,7 +109,7 @@ cmd_tail() {
 }
 
 case "${1:-}" in
-  build|up|down|status|logs|doctor|topics|tail) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|topics|tail|ui) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-bus <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac

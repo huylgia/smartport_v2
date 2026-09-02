@@ -65,6 +65,39 @@ services:
       retries: 10
       start_period: 20s
 
+  # --- giao diện xem topic ----------------------------------------------------
+  # Redpanda Console, KHÔNG phải kafka-ui: cùng việc, nhưng đây là Go một binary còn
+  # kafka-ui là Spring Boot trên JVM. Đo trên chính máy này: kafka-ui của nhóm khác đang
+  # chiếm 474 MiB thường trú. Trên máy đích i7-12700 vốn phải gánh ds_app + Triton +
+  # Redpanda, đó không phải khoản dư ra.
+  #
+  # Chỉ ĐỌC: `console` không có quyền tạo/xoá topic ở đây, vì một giao diện tiện tay là
+  # chỗ dễ lỡ xoá một topic đang chạy. Tạo topic đi qua `craneops-bus topics`, vốn sinh
+  # danh sách từ enum `Topic`.
+  console:
+    image: ${CONSOLE_IMAGE:-redpandadata/console:v2.7.2}
+    container_name: craneops-console
+    environment:
+      # Tên service, không phải localhost: console nói chuyện với broker qua listener nội
+      # bộ của network craneops.
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "false"
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    ports:
+      - "${CONSOLE_PORT:-19080}:8080"
+    networks: [craneops]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${CONSOLE_CPUS:-1}"
+          memory: ${CONSOLE_MEMORY:-512m}
+          pids: 256
+
 volumes:
   # Volume THƯỜNG: message phải sống qua `compose down`. Retention do topic quyết định,
   # không do vòng đời container.
