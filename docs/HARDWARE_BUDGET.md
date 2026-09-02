@@ -772,6 +772,38 @@ craneops-triton accuracy
 ⚠️ **Đo tiến trình nào.** PID 1 trong container DeepStream là `entrypoint.sh`, không phải
 ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", và hoàn toàn vô nghĩa.
 
+#### Điểm vận hành của detector, và vùng crop suy từ mã (2026-09-02)
+
+Đo trên 14 mẫu GC03 đọc ra mã hợp lệ, lúc detector **đang chạy đúng**:
+
+| | trung vị | dải |
+|---|---:|---|
+| Hộp mã trong khung | 174 x 28 px | 118-226 x 14-35 |
+| Hộp mã trong đầu vào detector | 130 x 23 px | 107-153 x 10-29 |
+| Vùng crop → đầu vào | 776x722 → 640x592 | |
+| **Mã chiếm bề rộng đầu vào** | **20 %** | |
+
+20 % nghĩa là vùng crop rộng gấp **5 lần** cạnh dài của mã. Tính ngược 20 vùng của v1 cho
+**4,89 lần** — hai phép đo độc lập, cùng một con số. Đó là cơ sở cho
+`preprocess.CODE_CONTEXT`, cho phép suy vùng từ 4 điểm khoanh mã thay vì vẽ vùng rồi dò.
+
+⚠️ **Khung đầy đủ không thay được vùng crop** — và lý do không phải "thiếu ngữ cảnh":
+
+| Cách làm | đúng / 4 | chữ co |
+|---|---:|---:|
+| ROI cắt @ 640 | 3 | 1,54x |
+| khung đầy đủ @ 640 | 0 | 4,20x |
+| khung đầy đủ @ 800 | 0 | 3,36x |
+| khung đầy đủ @ 992 (trần profile) | 1 | 2,71x |
+
+Đơn điệu theo **mức co của chữ**. Để chữ co bằng 1,54x, khung đầy đủ cần cạnh dài ~1745
+(992x1760) — **2,2 lần** trần profile hiện tại, phải dựng lại engine. Vùng crop tồn tại để
+giữ độ phân giải chữ và để gán sẵn `lane`/`cont_dim`, **không** phải để bớt nhiễu nền.
+
+⚠️ **Chưa đo được mức nới TỐI THIỂU.** Mọi phép so đã làm đều lấy mẫu chuẩn từ chính vùng
+của v1, nên vùng nào khác nó cũng thua sẵn — thiên lệch chọn mẫu. Cần nhãn 4 điểm gán tay,
+độc lập với đường ống, rồi đo lại.
+
 #### Kích thước đầu vào detector: công thức thay cho chỉnh tay (2026-09-02)
 
 v1 khai `input_size` riêng cho từng vùng — 12 giá trị khác nhau chỉ riêng nhánh ngang — nên

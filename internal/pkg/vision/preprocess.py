@@ -17,6 +17,7 @@ trong ``triton/repo`` đều đã gấp; nếu thêm model mới, gấp nó, đ�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -150,3 +151,61 @@ def fit_long_side(height: int, width: int, long_side: int = DET_LONG_SIDE) -> tu
         max(32, round(height * scale / 32) * 32),
         max(32, round(width * scale / 32) * 32),
     )
+
+
+CODE_CONTEXT = 5.0
+"""Cạnh vùng crop, tính theo **bội cạnh dài của chính mã container**.
+
+Người vẽ vùng chỉ cần khoanh 4 điểm của mã; phần nới ra suy từ đây. Đó là việc lặp lại
+được — khác hẳn việc vẽ một vùng rồi dò ``input_size`` cho nó.
+
+Con số 5 đến từ hai phép đo độc lập cùng chỉ về một chỗ:
+
+* Tính ngược 20 vùng của v1 (đang chạy ở cảng): vùng rộng gấp **4,89 lần** bề rộng mã.
+* Điểm vận hành đo trên mẫu đọc được: mã chiếm **20 %** bề rộng đầu vào detector, tức
+  vùng gấp 5 lần — và ở đó mã cao ~23 px trong đầu vào.
+
+⚠️ Hai con số này nói vùng cần **bao nhiêu ngữ cảnh**, không nói mức tối thiểu. Chưa đo
+được mức tối thiểu: mọi phép so hiện có đều lấy mẫu từ chính vùng của v1, nên vùng nào
+khác nó cũng thua sẵn — thiên lệch chọn mẫu. Đo lại khi có nhãn 4 điểm gán tay, độc lập
+với đường ống hiện tại. Xem ``docs/HARDWARE_BUDGET.md`` §6.2.
+"""
+
+
+def roi_from_code(
+    quad: Sequence[tuple[float, float]],
+    frame_width: int,
+    frame_height: int,
+    context: float = CODE_CONTEXT,
+) -> tuple[float, float, float, float]:
+    """4 điểm của mã container → vùng crop tương đối ``(x1, y1, x2, y2)``.
+
+    Vùng **gần vuông** chứ không theo tỉ lệ dẹt của mã: đo trên cấu hình đang chạy thấy
+    vùng 776x722 cho một mã 174x28. Mã dịch lên xuống giữa các chuyến xe nhiều hơn là
+    dịch ngang, nên phần chừa theo chiều dọc phải tính theo cạnh DÀI của mã.
+
+    Args:
+        quad: 4 đỉnh ``(x, y)`` theo **pixel của khung**, thứ tự nào cũng được.
+        context: cạnh vùng bằng bao nhiêu lần cạnh dài của mã.
+
+    Vùng bị **cắt về trong khung**, nên mã nằm sát mép cho ra vùng lệch tâm — đúng như
+    mong muốn: không có gì để lấy ngoài mép ảnh.
+    """
+    xs = [p[0] for p in quad]
+    ys = [p[1] for p in quad]
+    if len(quad) != 4:
+        raise ValueError(f"cần đúng 4 điểm, nhận {len(quad)}")
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError(f"kích thước khung phải dương, nhận {(frame_width, frame_height)}")
+
+    long_side = max(max(xs) - min(xs), max(ys) - min(ys))
+    if long_side <= 0:
+        raise ValueError(f"4 điểm suy biến thành một điểm/đường: {list(quad)}")
+
+    half = long_side * context / 2.0
+    cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+    x1 = max(0.0, cx - half) / frame_width
+    y1 = max(0.0, cy - half) / frame_height
+    x2 = min(float(frame_width), cx + half) / frame_width
+    y2 = min(float(frame_height), cy + half) / frame_height
+    return (x1, y1, x2, y2)
