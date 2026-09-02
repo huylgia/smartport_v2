@@ -4,7 +4,6 @@ import pytest
 
 from internal.pkg.timebase import (
     FrameClock,
-    TimeWindow,
     frame_timestamp,
     restore_frame_id,
 )
@@ -102,67 +101,3 @@ def test_frame_clock_frame_at_never_negative() -> None:
 def test_frame_clock_rejects_invalid(fps: float, interval: int) -> None:
     with pytest.raises(ValueError):
         FrameClock(start_ts=0.0, fps=fps, drop_frame_interval=interval)
-
-
-# ---------------------------------------------------------------- TimeWindow
-
-
-def test_time_window_around_anchor() -> None:
-    """Offset thực địa: -20/+15 cho camera thường, -35/+10 cho camera đáy."""
-    anchor = 1_756_312_837.0
-
-    normal = TimeWindow.around(anchor, (-20.0, 15.0))
-    assert normal.start == anchor - 20.0
-    assert normal.end == anchor + 15.0
-    assert normal.duration == 35.0
-
-    bottom = TimeWindow.around(anchor, (-35.0, 10.0))
-    assert bottom.duration == 45.0
-
-
-def test_time_window_contains() -> None:
-    w = TimeWindow(100.0, 200.0)
-    assert w.contains(100.0)
-    assert w.contains(150.0)
-    assert w.contains(200.0)
-    assert not w.contains(99.9)
-    assert not w.contains(200.1)
-
-
-def test_time_window_overlaps_is_symmetric() -> None:
-    a = TimeWindow(100.0, 200.0)
-    for other, expected in [
-        (TimeWindow(150.0, 250.0), True),
-        (TimeWindow(200.0, 300.0), True),  # chạm biên vẫn tính là giao
-        (TimeWindow(201.0, 300.0), False),
-        (TimeWindow(0.0, 99.0), False),
-        (TimeWindow(120.0, 130.0), True),  # nằm gọn bên trong
-    ]:
-        assert a.overlaps(other) is expected
-        assert other.overlaps(a) is expected
-
-
-def test_time_window_shifted() -> None:
-    assert TimeWindow(100.0, 200.0).shifted(50.0) == TimeWindow(150.0, 250.0)
-
-
-def test_time_window_clamped_to_available_segments() -> None:
-    w = TimeWindow(100.0, 200.0)
-    assert w.clamped(120.0, 180.0) == TimeWindow(120.0, 180.0)
-    assert w.clamped(0.0, 1000.0) == w
-
-
-def test_time_window_clamped_raises_when_disjoint() -> None:
-    w = TimeWindow(100.0, 200.0)
-    with pytest.raises(ValueError, match="không giao"):
-        w.clamped(300.0, 400.0)
-
-
-def test_time_window_rejects_inverted() -> None:
-    with pytest.raises(ValueError):
-        TimeWindow(200.0, 100.0)
-
-
-def test_time_window_is_hashable() -> None:
-    """frozen+slots ⇒ dùng được làm key khi gom job evidence theo cửa sổ."""
-    assert len({TimeWindow(1.0, 2.0), TimeWindow(1.0, 2.0)}) == 1

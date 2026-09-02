@@ -359,7 +359,8 @@ class EvidenceJob(BaseModel):
     Tuyệt đối chứ không phải độ lệch so với mốc neo, vì như vậy **một job tự đủ**: đưa nó
     cho worker không phải kèm theo mốc neo, và người đọc message không phải cộng trừ. Quy
     đổi từ cửa sổ trong ``configs/operations/*.yaml`` là việc của orchestrator, làm một lần
-    ở chỗ nó đọc config.
+    ở chỗ nó đọc config — và cửa sổ phải nằm ở config chứ không phải hằng số trong code,
+    vì các con số ấy được chỉnh theo thực địa.
 
     Nằm trong message chứ không phải hằng số trong ``evidenced``: mỗi camera một cửa sổ
     khác nhau (camera đáy cần lùi xa hơn nhiều), và cửa sổ là quyết định của orchestrator

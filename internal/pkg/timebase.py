@@ -27,7 +27,6 @@ from dataclasses import dataclass
 
 __all__ = [
     "FrameClock",
-    "TimeWindow",
     "frame_timestamp",
     "restore_frame_id",
 ]
@@ -131,59 +130,3 @@ class FrameClock:
     def frame_at(self, ts: float) -> int:
         """Chỉ số frame **gốc** gần nhất với thời điểm ``ts``. Nghịch đảo của :meth:`timestamp`."""
         return max(0, round((ts - self.start_ts) * self.fps))
-
-
-@dataclass(frozen=True, slots=True)
-class TimeWindow:
-    """Khoảng thời gian tuyệt đối, dùng để cắt clip evidence.
-
-    Sinh ra từ một mốc neo (thường là thời điểm rule ``CRANE03`` báo "cẩu đang thao tác")
-    cộng với một cặp offset **lấy từ config**, không phải hằng số trong code: mỗi vai trò
-    camera cần một cửa sổ khác nhau (camera đáy phải lùi xa hơn nhiều), và các con số này
-    được chỉnh theo thực địa.
-    """
-
-    start: float
-    end: float
-
-    def __post_init__(self) -> None:
-        if self.end < self.start:
-            raise ValueError(f"end ({self.end}) phải >= start ({self.start})")
-
-    @classmethod
-    def around(cls, anchor_ts: float, offsets: tuple[float, float]) -> TimeWindow:
-        """Cửa sổ quanh một mốc neo.
-
-        Args:
-            anchor_ts: Mốc neo, epoch giây.
-            offsets: ``(trước, sau)`` tính bằng giây. Offset "trước" thường âm,
-                ví dụ ``(-20.0, 15.0)``.
-        """
-        before, after = offsets
-        return cls(start=anchor_ts + before, end=anchor_ts + after)
-
-    @property
-    def duration(self) -> float:
-        return self.end - self.start
-
-    def contains(self, ts: float) -> bool:
-        return self.start <= ts <= self.end
-
-    def overlaps(self, other: TimeWindow) -> bool:
-        """Có giao nhau không — dùng để chọn segment recording cần cắt."""
-        return self.start <= other.end and other.start <= self.end
-
-    def shifted(self, delta: float) -> TimeWindow:
-        return TimeWindow(start=self.start + delta, end=self.end + delta)
-
-    def clamped(self, lower: float, upper: float) -> TimeWindow:
-        """Cắt cửa sổ về trong đoạn khả dụng (ví dụ phạm vi thời gian các segment đang có).
-
-        Raises:
-            ValueError: nếu sau khi cắt không còn giao nhau.
-        """
-        start = max(self.start, lower)
-        end = min(self.end, upper)
-        if end < start:
-            raise ValueError(f"cửa sổ [{self.start}, {self.end}] không giao với [{lower}, {upper}]")
-        return TimeWindow(start=start, end=end)
