@@ -545,6 +545,33 @@ lọt vào `--role all`: đo được **1 503 lỗi trong 60 giây** (5 camera d
 `KeyError`), trong khi hai role kia vẫn chạy đúng nên bảng tổng kết trông gần như bình
 thường.
 
+#### ds_app → Kafka (2026-09-02, máy dev)
+
+Ba camera live, 46 giây, Redpanda một node:
+
+```
+gửi 330  xong 330  BỎ 0  LỖI 0  LỖI-NHẬN 0
+kafka: xếp 330  broker ack 330  BỎ 0  LỖI 0  còn bay 0
+```
+
+815 message đọc ngược lại từ topic đều hợp lệ theo `PerceptionMessage`, khoá phân vùng
+đúng bằng `camera_code`, và `frame_ts` khớp `start_ts + frame_id / fps` **lệch 0,0 ms**.
+
+Hai chỗ mất message im lặng đã bịt, cả hai đều chỉ lộ ra khi chạy thật:
+
+* **Metadata chưa nạp.** `max_block_ms` thấp biến việc chờ metadata cluster thành lỗi, nên
+  **2 message đầu mỗi lần chạy** biến mất. `BusProducer.start()` nạp sẵn metadata cho đúng
+  các topic sắp dùng — chặn lúc khởi động thì được, chặn trong `publish()` thì không.
+* **Callback ném thì giết worker.** `on_result` nằm ngoài `try` của worker, nên một lỗi ở
+  nơi nhận làm thread chết lặng lẽ: `completed` vẫn tăng tới lúc thread cuối chết rồi mọi
+  thứ dừng hẳn. Nay nó nằm trong `try`, đếm riêng (`sink_failed`) và **giữ lại thông báo
+  lỗi đầu tiên** — một bộ đếm nói rằng có hỏng, nó không nói hỏng ở đâu.
+
+⚠️ `start_ts` là thời điểm của **khung `frame_id == 0`**, không phải gốc PTS của nguồn.
+Lấy nhầm mốc làm `start_ts + frame_id/fps` lệch `frame_ts` một khoảng cố định bằng PTS của
+khung đầu (đo được **0,475 s**) — nhịp vẫn đúng nên không có gì báo, chỉ là mọi cửa sổ thời
+gian trượt đi nửa giây.
+
 ### 6.2 Độ chính xác — đo 2026-08-30
 
 Công cụ: `tools/golden/accuracy.py` (so với **nhãn**), `tools/golden/parity_stages.py` và
