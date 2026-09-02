@@ -87,7 +87,7 @@ services:
         --bus ${BUS:-redpanda:9092}
         ${QUIET:+--quiet}
         --restart-after ${RESTART_AFTER:-0}
-        --source "${SOURCE:-}"
+        ${SOURCE:+--source ${SOURCE}}
         --blackout-after ${BLACKOUT_AFTER:-0}
         --blackout ${BLACKOUT:-30}
     restart: "no"

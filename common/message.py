@@ -228,7 +228,15 @@ class PerceptionMessage(_Msg):
     role: CameraRole
 
     frame_id: int = Field(ge=0)
-    """Chỉ số khung **gốc**, đã khôi phục qua ``restore_frame_id``. Xem timebase."""
+    """Chỉ số khung **gốc**, đã khôi phục qua ``restore_frame_id``. Xem timebase.
+
+    Đọc là *"số khung nguồn này đã gửi tới được"*, **không phải** *"khung thứ mấy camera đã
+    phát"*. Bộ đếm nằm ở trạng thái per-pad của ``nvstreammux``, nên nó sống sót qua cả
+    việc nối lại RTSP lẫn việc dựng lại hẳn source bin — nhưng nó **đứng yên** trong lúc
+    camera mất kết nối. Xem ``docs/HARDWARE_BUDGET.md`` §6.1.
+
+    Dùng cho thứ tự và dedup **trong một trục thời gian** (xem :attr:`start_ts`); đừng dùng
+    để suy ra thời gian."""
 
     start_ts: Timestamp
     """Mốc neo **đang có hiệu lực** cho camera này — thời điểm unix ứng với khung đầu tiên

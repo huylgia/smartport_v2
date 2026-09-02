@@ -611,6 +611,22 @@ tích luỹ nhảy từ 0,000 s lên đúng **30,000 s** trong một lần. Vớ
 đặt 30 s, mỗi lần rớt mạng cộng thêm ít nhất ngần đó, nên `start_ts + frame_id/fps` không
 dùng thay `frame_ts` được trong một tiến trình chạy dài.
 
+**Vì sao `frame_id` không reset khi camera nối lại** (đo 2026-09-02). Ba phép đo cùng chỉ
+về một chỗ:
+
+| Phép đo | Kết quả | Loại trừ được gì |
+|---|---|---|
+| `nvdsmeta.h` | *"Holds the current frame number of the **source**"* | — |
+| Chặn **một** trong hai camera cùng muxer 20 s | camera bị chặn 885, camera kia 1485 — chênh **600 = 20 s x 30 fps** | không phải bộ đếm chung cả batch |
+| `replace_source` (huỷ HẲN source bin rồi dựng lại) | 585 → 594, đi tiếp | bộ đếm **không** nằm trong source bin |
+
+Nên nó nằm ở trạng thái **per-pad của `nvstreammux`**: một bộ đếm cho mỗi sink pad, tăng
+theo từng buffer pad đó nhận. Huỷ cả source bin cũng không đụng tới nó, vì `replace_source`
+cố ý **không trả request pad** — trả pad lúc đang chạy là thao tác đã biết làm treo pipeline.
+
+Hệ quả cần nhớ: `frame_num` là *"số buffer pad này đã nhận"*, **không phải** *"khung thứ
+mấy camera đã phát"*. Đó chính là lý do nó không cộng thêm trong lúc mất mạng.
+
 **`nvurisrcbin` tự nối lại RTSP: PTS KHÔNG reset** (đo 2026-09-02). Dựng một mediamtx cục
 bộ phát lại đoạn đã ghi, rồi restart nó giữa chừng để cắt kết nối thật:
 
