@@ -78,6 +78,11 @@ def _args() -> argparse.Namespace:
         help="giây; dựng lại nguồn đầu tiên sau ngần này để xem trục thời gian có liền không",
     )
     ap.add_argument(
+        "--source",
+        default="",
+        help="ghi đè URL RTSP cho MỌI camera — chỉ để thí nghiệm với server cục bộ",
+    )
+    ap.add_argument(
         "--blackout-after",
         type=float,
         default=0.0,
@@ -199,7 +204,7 @@ def main() -> int:
         muxer = branch.build(Gst, pipeline)
 
         for pad_index, cam in enumerate(cams):
-            bin_ = make_source_bin(Gst, index, cam)
+            bin_ = make_source_bin(Gst, index, cam, args.source or None)
             pipeline.add(bin_)
             # Tên do `source_queue_name` quyết định: `replace_source` tìm hàng đợi
             # theo đúng tên này để nối lại nguồn mới.
@@ -234,7 +239,7 @@ def main() -> int:
 
         def _restart() -> bool:
             print(f"\n### dựng lại nguồn {first_cams[0].code} ###\n", flush=True)  # noqa: T201
-            replace_source(Gst, pipeline, 0, first_cams[0])
+            replace_source(Gst, pipeline, 0, first_cams[0], uri=args.source or None)
             return False
 
         GLib.timeout_add_seconds(int(args.restart_after), _restart)

@@ -108,10 +108,15 @@ def build_sources(
     return pad_of_camera
 
 
-def make_source_bin(Gst: Any, index: int, camera: CameraConfig) -> Any:
-    """Một ``nvurisrcbin`` bọc trong bin có đúng một ghost src pad."""
+def make_source_bin(Gst: Any, index: int, camera: CameraConfig, uri: str | None = None) -> Any:
+    """Một ``nvurisrcbin`` bọc trong bin có đúng một ghost src pad.
+
+    Args:
+        uri: ghi đè URL trong config. Chỉ dùng để **thí nghiệm** — trỏ vào một RTSP server
+            cục bộ mà ta cắt được kết nối, thứ không làm được với camera thật ở cảng.
+    """
     bin_ = Gst.Bin.new(source_bin_name(index))
-    uri = camera.rtsp_record
+    uri = uri or camera.rtsp_record
     src = make(Gst, "nvurisrcbin", f"uridecode_{index}")
     src.set_property("uri", uri)
     apply_props(src, NVURISRCBIN)
@@ -210,6 +215,7 @@ def replace_source(
     *,
     recorder: Any | None = None,
     watchdog: Any | None = None,
+    uri: str | None = None,
 ) -> Any:
     """Thay một source bin đã chết bằng bin mới, các camera khác vẫn chạy.
 
@@ -242,7 +248,7 @@ def replace_source(
     old.get_state(5 * Gst.SECOND)
     pipeline.remove(old)
 
-    fresh = make_source_bin(Gst, index, camera)
+    fresh = make_source_bin(Gst, index, camera, uri)
     pipeline.add(fresh)
     if recorder is not None:
         recorder.attach(Gst, fresh, camera.code)

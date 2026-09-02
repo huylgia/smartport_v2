@@ -48,10 +48,15 @@ class TimeSync:
     nào không quan trọng, miễn là **một** neo phục vụ cả hai nhánh; đó là điều giữ cho cửa
     sổ cắt clip không lệch giữa chúng.
 
-    ⚠️ Một ngoại lệ, và nó bắt buộc: **PTS lùi**. Nguồn RTSP nối lại có thể phát PTS từ
-    đầu, và một neo cũ áp lên PTS mới cho ra dấu thời gian ở **quá khứ** — clip evidence sẽ
-    được cắt ở chỗ chưa từng xảy ra chuyện gì, và không có gì báo. Gặp lùi thì neo lại, và
-    ĐẾM (:attr:`resets`) để nó không im lặng.
+    ⚠️ Một ngoại lệ: **PTS lùi**. Neo cũ áp lên PTS mới cho ra dấu thời gian ở **quá khứ**
+    — clip evidence sẽ được cắt ở chỗ chưa từng xảy ra chuyện gì, và không có gì báo. Gặp
+    lùi thì neo lại, và ĐẾM (:attr:`resets`) để nó không im lặng.
+
+    Với ``nvurisrcbin`` thì trường hợp này **chưa từng xảy ra**: đo bằng cách cắt kết nối
+    RTSP thật (restart một mediamtx cục bộ), PTS tiến +32,6 s đúng bằng thời gian gián
+    đoạn, không lùi — vì ``nvstreammux`` đóng dấu theo running-time của pipeline chứ không
+    theo timestamp RTP của nguồn. Giữ nhánh này vì nó không tốn gì và là thứ duy nhất chặn
+    được dấu thời gian quá khứ nếu có nguồn khác hành xử khác. Xem HARDWARE_BUDGET §6.1.
 
     PTS nhảy **tiến** thì không neo lại: đó là camera mất mạng, chuyện thường, và đã đo —
     30 s mất mạng cho PTS tiến đúng 30 s (HARDWARE_BUDGET §6.1). Neo lại ở đó sẽ xoá mất

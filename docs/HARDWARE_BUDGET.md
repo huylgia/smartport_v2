@@ -376,6 +376,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-02 | dev | Tiền xử lý crop cho classifier số xe | BGR **100 %** / RGB 87,4 % · nội suy không đổi gì · hình học crop khớp | §6.2 |
 | 2026-09-02 | dev | ds_app -> Kafka, 3 camera | **330 gửi / 330 ack, 0 mất** · trục thời gian lệch **0,0 ms** | §6.1 |
 | 2026-09-02 | dev | `replace_source` và trục thời gian | `frame_id` **không reset** · công thức tụt **601,7 ms** = thời gian gián đoạn | §6.1 |
+| 2026-09-02 | dev | RTSP nối lại thật (mediamtx restart) | PTS **không reset** · `frame_ts` lùi **0 lần** · lệch +32,3 s | §6.1 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -610,9 +611,28 @@ tích luỹ nhảy từ 0,000 s lên đúng **30,000 s** trong một lần. Vớ
 đặt 30 s, mỗi lần rớt mạng cộng thêm ít nhất ngần đó, nên `start_ts + frame_id/fps` không
 dùng thay `frame_ts` được trong một tiến trình chạy dài.
 
-Chưa đo: `nvurisrcbin` tự nối lại RTSP (`rtsp-reconnect-interval`) có giữ PTS liền mạch
-như `replace_source` không. Nếu PTS reset về 0 mà neo cũ vẫn giữ, `frame_ts` sẽ nhảy
-**lùi** — cần đo trước khi chạy dài ngoài thực địa.
+**`nvurisrcbin` tự nối lại RTSP: PTS KHÔNG reset** (đo 2026-09-02). Dựng một mediamtx cục
+bộ phát lại đoạn đã ghi, rồi restart nó giữa chừng để cắt kết nối thật:
+
+```
+#666  t=…231,963   ← khung cuối trước khi cắt
+#675  t=…264,545   ← khung đầu sau khi nối lại
+Δt = +32,582 s     Δid = +9
+```
+
+Giống hệt đợt chặn nhân tạo: PTS **tiến** đúng thời gian gián đoạn, bộ đếm +1 bước. Qua
+257 message của lần chạy đó: **một `start_ts` duy nhất** (neo lại sẽ sinh cái thứ hai) và
+`frame_ts` **lùi 0 lần**.
+
+Lý do: `nvstreammux` đóng dấu buffer theo running-time của pipeline, không theo timestamp
+RTP của nguồn — nên nguồn có phát lại PTS từ đầu thì hạ nguồn cũng không thấy.
+
+Guard chống PTS lùi trong `TimeSync` vì thế **chưa từng kích hoạt trong thực tế**. Vẫn giữ:
+nó không tốn gì, và nó là thứ duy nhất chặn được một dấu thời gian ở quá khứ nếu sau này
+có nguồn hành xử khác (file, `nvmultiurisrcbin`, hay một bản DeepStream khác).
+
+32,282 s là mức lệch tích luỹ sau **một** lần nối lại — với `rtsp-reconnect-interval` 30 s
+thì đó là sàn cho mỗi lần rớt mạng.
 
 ### 6.2 Độ chính xác — đo 2026-08-30
 
