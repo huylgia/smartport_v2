@@ -165,8 +165,14 @@ Con số 5 đến từ hai phép đo độc lập cùng chỉ về một chỗ:
 * Điểm vận hành đo trên mẫu đọc được: mã chiếm **20 %** bề rộng đầu vào detector, tức
   vùng gấp 5 lần — và ở đó mã cao ~23 px trong đầu vào.
 
-⚠️ Hai con số này nói vùng cần **bao nhiêu ngữ cảnh**, không nói mức tối thiểu. Chưa đo
-được mức tối thiểu: mọi phép so hiện có đều lấy mẫu từ chính vùng của v1, nên vùng nào
+**Một nhãn cho mỗi (camera, lane, cont_dim) là đủ.** Mã nằm ở vị trí cố định trên
+container, và container đỗ vào chỗ lặp lại được, nên vị trí mã chỉ dao động **0,09-0,67
+lần** cạnh dài của nó giữa các chuyến xe (đo trên 4 nhóm mẫu GC03). Lề của ``k=5`` là 2
+lần mỗi phía — dư gấp ba. Kiểm trực tiếp: vùng suy từ **một** nhãn phủ trọn **5/5** vị trí
+mã của 5 chuyến khác nhau.
+
+⚠️ Hai con số 4,89/5,0 nói vùng cần **bao nhiêu ngữ cảnh**, không nói mức tối thiểu. Chưa
+đo được mức tối thiểu: mọi phép so hiện có đều lấy mẫu từ chính vùng của v1, nên vùng nào
 khác nó cũng thua sẵn — thiên lệch chọn mẫu. Đo lại khi có nhãn 4 điểm gán tay, độc lập
 với đường ống hiện tại. Xem ``docs/HARDWARE_BUDGET.md`` §6.2.
 """

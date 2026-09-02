@@ -800,6 +800,12 @@ ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", v�
 (992x1760) — **2,2 lần** trần profile hiện tại, phải dựng lại engine. Vùng crop tồn tại để
 giữ độ phân giải chữ và để gán sẵn `lane`/`cont_dim`, **không** phải để bớt nhiễu nền.
 
+**Một nhãn mỗi (camera, lane, cont_dim) là đủ.** Vị trí mã dao động giữa các chuyến xe chỉ
+**0,09-0,67 lần** cạnh dài của nó (4 nhóm mẫu GC03), trong khi lề của `k=5` là 2 lần mỗi
+phía. Kiểm trực tiếp trên nhóm đông nhất: vùng suy từ **một** nhãn phủ trọn **5/5** vị trí
+mã của 5 chuyến khác nhau. Mã nằm cố định trên container và container đỗ vào chỗ lặp lại
+được — đó là lý do dao động nhỏ.
+
 ⚠️ **Chưa đo được mức nới TỐI THIỂU.** Mọi phép so đã làm đều lấy mẫu chuẩn từ chính vùng
 của v1, nên vùng nào khác nó cũng thua sẵn — thiên lệch chọn mẫu. Cần nhãn 4 điểm gán tay,
 độc lập với đường ống, rồi đo lại.
