@@ -245,8 +245,9 @@ class PerceptionMessage(_Msg):
     Trong một đoạn chạy liền mạch hai cách cho kết quả y hệt — đo trên GC03: lệch
     **0,0 ms** qua 585 khung, vì ``nvstreammux`` cấp PTS đều tuyệt đối. Nhưng ``frame_id``
     đếm **số khung nhận được**, không đếm thời gian: lúc camera mất kết nối, đồng hồ chạy
-    còn nó thì đứng. Đo được ngay tại khung đầu sau khi dựng lại nguồn, công thức tụt lại
-    **601,7 ms** và giữ nguyên khoảng đó về sau — đúng bằng thời gian gián đoạn.
+    còn nó thì đứng, rồi khi có lại nó chỉ **+1** — không nhảy qua những khung không tới.
+    Đo với đợt mất mạng 30 s: ``frame_num`` 65 → 66 trong khi ``frame_ts`` nhảy 30,3 s,
+    nên công thức tụt lại đúng **30,000 s** và giữ nguyên khoảng đó về sau.
 
     Nghĩa là sai lệch **tích luỹ** theo từng lần rớt mạng. Trường này không bị vậy."""
 

@@ -594,8 +594,21 @@ frame_id    lệch (frame_ts - start_ts) - frame_id/fps
      594      601,7 ms   ← nhảy đúng tại đây, rồi giữ nguyên
 ```
 
-601,7 ms là đúng thời gian gián đoạn. Sai lệch **tích luỹ** qua từng lần rớt mạng, nên
-`start_ts + frame_id/fps` không dùng thay `frame_ts` được trong một tiến trình chạy dài.
+601,7 ms là đúng thời gian gián đoạn.
+
+Đo lại với đợt mất mạng **30 giây** (chặn buffer ngay tại src pad — với muxer thì nó không
+phân biệt được với camera rớt: không dữ liệu, không EOS, không lỗi):
+
+| | trước | sau |
+|---|---:|---:|
+| `frame_num` | 65 | **66** |
+| `frame_id` (đã khôi phục, bước 9) | 576 | **585** |
+| `frame_ts` | …228,176 | **…258,476** (+30,300 s) |
+
+Bộ đếm **không nhảy qua** ~900 khung nguồn không bao giờ tới — nó chỉ đơn giản là +1. Lệch
+tích luỹ nhảy từ 0,000 s lên đúng **30,000 s** trong một lần. Với `rtsp-reconnect-interval`
+đặt 30 s, mỗi lần rớt mạng cộng thêm ít nhất ngần đó, nên `start_ts + frame_id/fps` không
+dùng thay `frame_ts` được trong một tiến trình chạy dài.
 
 Chưa đo: `nvurisrcbin` tự nối lại RTSP (`rtsp-reconnect-interval`) có giữ PTS liền mạch
 như `replace_source` không. Nếu PTS reset về 0 mà neo cũ vẫn giữ, `frame_ts` sẽ nhảy

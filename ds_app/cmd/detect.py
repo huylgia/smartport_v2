@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -75,6 +76,18 @@ def _args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="giây; dựng lại nguồn đầu tiên sau ngần này để xem trục thời gian có liền không",
+    )
+    ap.add_argument(
+        "--blackout-after",
+        type=float,
+        default=0.0,
+        help="giây; CHẶN dữ liệu của nguồn đầu tiên từ mốc này — mô phỏng camera mất mạng",
+    )
+    ap.add_argument(
+        "--blackout",
+        type=float,
+        default=30.0,
+        help="giây; độ dài đợt chặn (mặc định 30 = rtsp-reconnect-interval)",
     )
     return ap.parse_args()
 
@@ -225,6 +238,30 @@ def main() -> int:
             return False
 
         GLib.timeout_add_seconds(int(args.restart_after), _restart)
+
+    if args.blackout_after > 0:
+        # Chặn buffer ngay tại src pad của nguồn: với muxer thì nó KHÔNG phân biệt được
+        # với camera mất mạng — không có gì tới, không có EOS, không có lỗi. Đây là mô
+        # phỏng đúng nhất mà không phải rút cáp.
+        cams0 = next(iter(by_role.values()))
+        held: list[tuple[Any, int]] = []
+
+        def _blackout() -> bool:
+            src = pipeline.get_by_name(source_bin_name(0)).get_static_pad("src")
+            held.append(
+                (src, src.add_probe(Gst.PadProbeType.BUFFER, lambda *_: Gst.PadProbeReturn.DROP))
+            )
+            print(f"\n### CHẶN {cams0[0].code} trong {args.blackout:g}s ###\n", flush=True)  # noqa: T201
+            GLib.timeout_add_seconds(int(args.blackout), _restore)
+            return False
+
+        def _restore() -> bool:
+            src, pid = held.pop()
+            src.remove_probe(pid)
+            print("\n### THẢ ###\n", flush=True)  # noqa: T201
+            return False
+
+        GLib.timeout_add_seconds(int(args.blackout_after), _blackout)
     signal.signal(signal.SIGINT, lambda *_: loop.quit())
 
     started = time.time()
