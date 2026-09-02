@@ -15,9 +15,11 @@ nhưng **không** nối vào muxer — nên nhánh decode của nó không bao g
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from common.config import CameraConfig, CraneConfig
+from common.enum import CameraRole
 from ds_app.src.pipeline.elements import (
     DEC_QUEUE,
     NVURISRCBIN,
@@ -49,19 +51,30 @@ def build_sources(
     Gst: Any,
     pipeline: Any,
     crane: CraneConfig,
-    streammux: Any,
+    muxers: Mapping[CameraRole, Any],
     *,
     recorder: Any | None = None,
     watchdog: Any | None = None,
-) -> dict[int, str]:
-    """Dựng nguồn cho **mọi** camera; chỉ camera ``decodes`` được nối vào muxer.
+) -> dict[CameraRole, dict[int, CameraConfig]]:
+    """Dựng nguồn cho **mọi** camera, một lần duy nhất cho cả hai nhánh.
+
+    Đây là đường dựng nguồn **duy nhất**. Nhánh ghi và nhánh model dùng chung một
+    ``nvurisrcbin`` cho mỗi camera: nhánh ghi cắm vào ``tee_rtsp_pre_decode`` bên trong nó
+    (trước decode), nhánh model lấy src pad đã decode. Mở hai kết nối RTSP cho cùng một
+    camera là gấp đôi số socket và gấp đôi tải mạng để lấy đúng một luồng.
+
+    Args:
+        muxers: ``{role: nvstreammux}``. Một muxer cho MỖI role — muxer cho ra một batch
+            và không có cách nào bảo tầng sau chỉ xử lý vài nguồn trong đó. Role không có
+            trong bảng thì camera của nó **không** nối vào đâu cả: đó là cách `bottom`,
+            `evidence_only`, và các role chưa có model giữ NVDEC ở 0.
 
     Returns:
-        ``{pad_index: camera.code}`` cho các camera có vào muxer. Probe cần bảng này:
+        ``{role: {pad_index: camera}}`` cho các camera có vào muxer. Probe cần bảng này:
         metadata của DeepStream chỉ mang ``pad_index``, không mang danh tính camera.
     """
-    pad_of_camera: dict[int, str] = {}
-    pad_index = 0
+    attached: dict[CameraRole, dict[int, CameraConfig]] = {}
+    pad_index: dict[CameraRole, int] = {}
 
     # `record_cameras`, KHÔNG phải `crane.cameras`: cái sau là một ánh xạ, và duyệt nó
     # cho ra KHOÁ chứ không phải camera — im lặng, tới tận lúc chạm thuộc tính đầu tiên.
@@ -72,7 +85,8 @@ def build_sources(
         if recorder is not None:
             recorder.attach(Gst, bin_, camera.code)
 
-        if not camera.decodes:
+        muxer = muxers.get(camera.role) if camera.decodes else None
+        if muxer is None:
             # Không nối vào muxer: camera này chỉ ghi hình. Nhánh decode bên trong
             # nvurisrcbin vẫn tồn tại nhưng không ai kéo, nên nó dừng ngay ở buffer đầu
             # (NOT_LINKED) và KHÔNG tốn NVDEC.
@@ -82,30 +96,34 @@ def build_sources(
             # hình đúng nên không có gì báo khi làm sai. Xem HARDWARE_BUDGET §6.3.
             continue
 
-        sink_pad = streammux.request_pad_simple(f"sink_{pad_index}")
+        pad = pad_index.get(camera.role, 0)
+        sink_pad = muxer.request_pad_simple(f"sink_{pad}")
         if sink_pad is None:
-            raise RuntimeError(f"nvstreammux không cấp được pad sink_{pad_index}")
+            raise RuntimeError(f"nvstreammux {camera.role.value} không cấp được pad sink_{pad}")
 
-        src_pad = bin_.get_static_pad("src")
-        queue = make(Gst, "queue", source_queue_name(pad_index))
+        # ⚠️ Tên hàng đợi theo CHỈ SỐ BIN, không theo chỉ số pad. `replace_source(index)`
+        # tra hàng đợi theo chỉ số bin, và hai số này lệch nhau ngay khi có một camera
+        # không decode nằm TRƯỚC một camera có decode. Cấu hình GC03 hiện tại đặt chúng ở
+        # cuối nên chưa lệch — đó là may, không phải thiết kế.
+        qname = source_queue_name(index)
+        queue = make(Gst, "queue", qname)
         apply_props(queue, SOURCE_QUEUE)
         pipeline.add(queue)
 
         name = source_bin_name(index)
-        qname = source_queue_name(pad_index)
-        link_pads(Gst, src_pad, queue.get_static_pad("sink"), name, qname)
-        link_pads(Gst, queue.get_static_pad("src"), sink_pad, qname, "nvstreammux")
+        link_pads(Gst, bin_.get_static_pad("src"), queue.get_static_pad("sink"), name, qname)
+        link_pads(Gst, queue.get_static_pad("src"), sink_pad, qname, f"mux_{camera.role.value}")
 
         # Một camera rớt mạng KHÔNG được kéo sập muxer dùng chung: chặn EOS tại pad của nó.
         _drop_eos(Gst, sink_pad)
 
         if watchdog is not None:
-            watchdog.watch(pad_index, camera, src_pad)
+            watchdog.watch(index, camera, bin_.get_static_pad("src"))
 
-        pad_of_camera[pad_index] = camera.code
-        pad_index += 1
+        attached.setdefault(camera.role, {})[pad] = camera
+        pad_index[camera.role] = pad + 1
 
-    return pad_of_camera
+    return attached
 
 
 def make_source_bin(Gst: Any, index: int, camera: CameraConfig, uri: str | None = None) -> Any:

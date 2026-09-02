@@ -29,13 +29,25 @@ def _cam(role: CameraRole, index: int = 1, **kw: Any) -> CameraConfig:
 # ---------------------------------------------------------------- tập nguồn
 
 
+def all_muxers(gst: Any) -> dict[Any, Any]:
+    """Một muxer cho mỗi role chạy model — hình dạng mà `run.py` dựng ra."""
+    return {
+        r: gst.ElementFactory.make("nvstreammux", f"mux_{r.value}")
+        for r in CameraRole
+        if r.runs_model
+    }
+
+
+def flat(attached: dict[Any, dict[int, Any]]) -> dict[tuple[Any, int], str]:
+    """Gộp `{role: {pad: camera}}` thành `{(role, pad): code}` cho các phép đếm."""
+    return {(r, i): c.code for r, pads in attached.items() for i, c in pads.items()}
+
+
 def test_every_camera_gets_a_source_bin(gst: Any) -> None:
     """Cả camera chỉ-ghi cũng cần nvurisrcbin — nó cấp tee cho nhánh ghi."""
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
-
-    build_sources(gst, pipeline, crane, mux)
+    build_sources(gst, pipeline, crane, all_muxers(gst))
 
     bins = [c for c in pipeline.children if c.name.startswith("source-bin-")]
     assert len(bins) == 10, "phải có nguồn cho MỌI camera, kể cả camera không decode"
@@ -45,9 +57,7 @@ def test_only_decoding_cameras_reach_the_muxer(gst: Any) -> None:
     """8/10 vào muxer. Đây là ngân sách NVDEC, không phải tối ưu — xem HARDWARE_BUDGET §2.2."""
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
-
-    pad_map = build_sources(gst, pipeline, crane, mux)
+    pad_map = flat(build_sources(gst, pipeline, crane, all_muxers(gst)))
 
     assert len(pad_map) == 8
     assert len(set(pad_map.values())) == 8
@@ -63,22 +73,23 @@ def test_pad_index_is_contiguous_from_zero(gst: Any) -> None:
     """
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
+    pad_map = flat(build_sources(gst, pipeline, crane, all_muxers(gst)))
 
-    pad_map = build_sources(gst, pipeline, crane, mux)
-
-    assert sorted(pad_map) == list(range(len(pad_map)))
+    for role in {r for r, _ in pad_map}:
+        pads = sorted(i for r, i in pad_map if r == role)
+        assert pads == list(range(len(pads))), f"{role}: chỉ số pad có lỗ hổng"
 
 
 def test_pad_map_follows_declaration_order(gst: Any) -> None:
     """Thứ tự khai báo trong YAML = thứ tự pad. Đổi YAML là đổi ánh xạ khung→camera."""
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
+    pad_map = flat(build_sources(gst, pipeline, crane, all_muxers(gst)))
 
-    pad_map = build_sources(gst, pipeline, crane, mux)
-
-    assert [pad_map[i] for i in range(8)] == [c.code for c in crane.model_cameras]
+    # Trong MỖI role, thứ tự pad theo thứ tự khai báo trong YAML.
+    for role in {r for r, _ in pad_map}:
+        got = [pad_map[(role, i)] for i in sorted(i for r, i in pad_map if r == role)]
+        assert got == [c.code for c in crane.model_cameras if c.role is role]
 
 
 # ---------------------------------------------------------------- không decimate
@@ -141,9 +152,7 @@ def test_dec_queue_bounds_are_grafted_when_it_appears(gst: Any) -> None:
 def test_source_queue_decouples_from_the_shared_muxer(gst: Any) -> None:
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
-
-    build_sources(gst, pipeline, crane, mux)
+    build_sources(gst, pipeline, crane, all_muxers(gst))
 
     q = pipeline.get_by_name(source_queue_name(0))
     assert q.props["max-size-buffers"] == SOURCE_QUEUE["max-size-buffers"]
@@ -158,11 +167,11 @@ def test_eos_is_dropped_at_the_muxer_pad(gst: Any) -> None:
     """
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
+    muxers = all_muxers(gst)
+    build_sources(gst, pipeline, crane, muxers)
 
-    build_sources(gst, pipeline, crane, mux)
-
-    pad = mux.request_pad_simple("sink_0")
+    # Camera đầu của GC03 là `ccode`, nên pad 0 của muxer ccode là pad của nó.
+    pad = muxers[CameraRole.CCODE].request_pad_simple("sink_0")
     assert pad.probes, "phải có probe chặn EOS"
     kind, callback = pad.probes[0]
     assert kind == gst.PadProbeType.EVENT_DOWNSTREAM
@@ -178,10 +187,10 @@ def test_eos_is_dropped_at_the_muxer_pad(gst: Any) -> None:
 def test_non_eos_events_pass_through(gst: Any) -> None:
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
-    build_sources(gst, pipeline, crane, mux)
+    muxers = all_muxers(gst)
+    build_sources(gst, pipeline, crane, muxers)
 
-    _, callback = mux.request_pad_simple("sink_0").probes[0]
+    _, callback = muxers[CameraRole.CCODE].request_pad_simple("sink_0").probes[0]
 
     class _Info:
         @staticmethod
@@ -198,8 +207,7 @@ def test_replace_source_keeps_the_muxer_pad(gst: Any) -> None:
     """⚠️ Chỉ thay cái bin. Trả request pad của streammux lúc chạy là thao tác làm treo pipeline."""
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
-    build_sources(gst, pipeline, crane, mux)
+    build_sources(gst, pipeline, crane, all_muxers(gst))
 
     queue_before = pipeline.get_by_name(source_queue_name(0))
     pad_before = queue_before.get_static_pad("sink")
@@ -216,12 +224,11 @@ def test_replace_source_reattaches_recording(gst: Any) -> None:
     im lặng ngừng được ghi hình trong khi mọi thứ khác trông vẫn bình thường."""
     crane = load_crane(GC03, env=ENV)
     pipeline = gst.Bin.new("p")
-    mux = gst.ElementFactory.make("nvstreammux", "mux")
 
     attached: list[str] = []
     recorder = type("R", (), {"attach": lambda _s, _g, _b, cam: attached.append(cam)})()
 
-    build_sources(gst, pipeline, crane, mux, recorder=recorder)
+    build_sources(gst, pipeline, crane, all_muxers(gst), recorder=recorder)
     attached.clear()
     replace_source(gst, pipeline, 0, crane.record_cameras[0], recorder=recorder)
 
@@ -257,3 +264,28 @@ def test_replace_source_refuses_when_the_queue_name_does_not_match(gst: Any) -> 
 
     with pytest.raises(RuntimeError, match="source_queue_name"):
         replace_source(gst, pipeline, 0, camera)
+
+
+def test_the_queue_is_named_by_bin_index_not_pad_index(gst: Any) -> None:
+    """⚠️ Hai chỉ số này lệch nhau ngay khi có camera KHÔNG decode nằm TRƯỚC một camera có
+    decode, và ``replace_source(index)`` tra hàng đợi theo chỉ số **bin**.
+
+    GC03 hiện đặt hai camera chỉ-ghi ở cuối nên chưa lệch — đó là may, không phải thiết kế.
+    Test dựng đúng tình huống sẽ lệch: bỏ camera đầu ra khỏi mọi muxer.
+    """
+    crane = load_crane(GC03, env=ENV)
+    pipeline = gst.Bin.new("p")
+    # Không cấp muxer cho `ccode` ⇒ 5 camera đầu không vào muxer, nên camera bin thứ 5
+    # (tcode1) nhận pad 0. Tên hàng đợi phải theo 5, không theo 0.
+    muxers = {
+        r: gst.ElementFactory.make("nvstreammux", f"mux_{r.value}") for r in (CameraRole.TCODE,)
+    }
+
+    build_sources(gst, pipeline, crane, muxers)
+
+    assert pipeline.get_by_name(source_queue_name(5)) is not None, (
+        "hàng đợi phải mang chỉ số BIN (5) — replace_source(5) tra theo số này"
+    )
+    assert pipeline.get_by_name(source_queue_name(0)) is None, (
+        "chỉ số PAD (0) không được dùng làm tên: camera bin 0 đâu có vào muxer"
+    )

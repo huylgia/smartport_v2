@@ -74,6 +74,21 @@ services:
         ${META:+--show-meta}
     restart: "no"
 
+  # --- CHẠY THẬT: ghi hình + suy luận trên cùng một bộ nguồn ------------------
+  # Cần Triton và bus chạy trước (`craneops up`). `record`/`detect` chỉ dựng một nửa và
+  # tồn tại để chẩn đoán từng nửa.
+  run:
+    <<: *ds
+    command: >
+      python3 ds_app/cmd/run.py
+        --out /rec
+        --triton ${TRITON:-triton:8001}
+        --bus ${BUS:-redpanda:9092}
+        --segment-sec ${SEGMENT_SEC:-30}
+        --keep-segments ${KEEP_SEGMENTS:-6}
+        --duration ${DUR:-0}
+    restart: "no"
+
   # --- nhánh model: camera -> Triton -----------------------------------------
   # Cần Triton chạy trước (`craneops-triton up`). Nó nằm trên network `craneops` nên
   # địa chỉ là tên service, không phải localhost.

@@ -386,7 +386,7 @@ class RecordingBranch:
         if pts is None or pts == self._Gst.CLOCK_TIME_NONE:
             return now
         pts_sec = pts / self._Gst.SECOND
-        base = self._time_sync.anchor(camera_code, pts_sec, now)
+        base = self._time_sync.anchor(camera_code, pts_sec, now, series="record")
         return base.to_unix(pts_sec) if base is not None else now
 
 

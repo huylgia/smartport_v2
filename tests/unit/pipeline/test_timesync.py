@@ -116,3 +116,41 @@ def test_cameras_do_not_share_a_reset() -> None:
     sync.anchor("a", pts_sec=1.0, now_unix=1030.0)
 
     assert sync.resets == {"a": 1}
+
+
+def test_two_branches_reading_different_pts_streams_do_not_look_like_a_reversal() -> None:
+    """⚠️ Hồi quy đo được: nhánh ghi đọc PTS **trước decode**, nhánh model đọc PTS **sau
+    muxer**. Hai chuỗi khác nhau cho cùng một camera.
+
+    Gộp chúng vào một phép so "lùi" thì mỗi lần mở đoạn ghi là một lần báo giả — đo được
+    **2 lần/camera** trong một phiên 91 giây chạy đủ hai nhánh.
+    """
+    sync = TimeSync()
+    sync.anchor("cam", pts_sec=10.0, now_unix=1000.0, series="model")
+    sync.anchor("cam", pts_sec=11.0, now_unix=1001.0, series="model")
+
+    # Nhánh ghi mở đoạn với PTS của CHUỖI RIÊNG nó, tình cờ nhỏ hơn.
+    sync.anchor("cam", pts_sec=2.0, now_unix=1002.0, series="record")
+
+    assert sync.resets == {}, "chuỗi khác nhau không được coi là PTS lùi"
+
+
+def test_a_reversal_inside_one_series_is_still_caught() -> None:
+    """Đối chứng: tách chuỗi không được làm mất khả năng phát hiện cú lùi thật."""
+    sync = TimeSync()
+    sync.anchor("cam", pts_sec=10.0, now_unix=1000.0, series="model")
+    sync.anchor("cam", pts_sec=11.0, now_unix=1001.0, series="model")
+
+    sync.anchor("cam", pts_sec=0.5, now_unix=1030.0, series="model")
+
+    assert sync.resets["cam"] == 1
+
+
+def test_both_branches_still_share_one_anchor() -> None:
+    """Tách chuỗi chỉ để phát hiện đứt. Neo vẫn phải dùng chung — đó là thứ giữ cho cửa sổ
+    cắt clip không lệch giữa hai nhánh."""
+    sync = TimeSync()
+    a = sync.anchor("cam", pts_sec=10.0, now_unix=1000.0, series="model")
+    b = sync.anchor("cam", pts_sec=3.0, now_unix=1002.0, series="record")
+
+    assert a is b

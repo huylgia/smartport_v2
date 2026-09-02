@@ -8,6 +8,7 @@
 #: status         | Container đang chạy và tình trạng thư mục ghi
 #: logs           | 40 dòng log cuối
 #: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
+#: run            | CHẠY THẬT: ghi hình + suy luận, cùng một bộ nguồn
 #: record         | Ghi hình một camera, KHÔNG suy luận
 #: detect         | Chạy nhánh model: camera -> Triton -> kết quả
 #: clean          | Xoá segment đã ghi
@@ -102,6 +103,32 @@ cmd_record() {
   )
 }
 
+cmd_run() {
+  local dur=0 seg="" keep=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --duration) dur="$2"; shift 2 ;;
+      --segment-sec) seg="$2"; shift 2 ;;
+      --keep-segments) keep="$2"; shift 2 ;;
+      -h|--help)
+        printf 'craneops-ds run [--duration GIÂY] [--segment-sec GIÂY] [--keep-segments N]\n\n'
+        printf '  Ghi hình MỌI camera + suy luận trên camera có model, dùng chung nguồn.\n'
+        printf '  --duration      0 = chạy mãi (mặc định)\n'
+        printf '  --segment-sec   độ dài mỗi đoạn\n'
+        printf '  --keep-segments số đoạn giữ lại cho mỗi camera\n'
+        return 0 ;;
+      *) die "tham số không hợp lệ cho run: $1  (--help để xem)" ;;
+    esac
+  done
+  require_docker
+  (
+    export DUR="$dur"
+    if [ -n "$seg" ]; then export SEGMENT_SEC="$seg"; fi
+    if [ -n "$keep" ]; then export KEEP_SEGMENTS="$keep"; fi
+    compose run --rm run
+  )
+}
+
 cmd_detect() {
   local role=all dur=60 triton="" bus="" quiet=""
   while [ $# -gt 0 ]; do
@@ -143,7 +170,7 @@ cmd_clean() {
 }
 
 case "${1:-}" in
-  build|up|down|status|logs|doctor|record|detect|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  build|up|down|status|logs|doctor|run|record|detect|clean) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
   -h|--help|help|"") printf 'craneops-ds <lệnh>\n\n'; print_commands "$0" ;;
   *) unknown_command "$0" "${1:-}" ;;
 esac

@@ -170,7 +170,7 @@ class ModelBranch:
         from internal.pkg.timebase import restore_frame_id
 
         pts_sec = frame.buf_pts / 1e9
-        base = self._sync.anchor(camera.code, pts_sec, time.time())
+        base = self._sync.anchor(camera.code, pts_sec, time.time(), series="model")
         if base is None:
             # Vài buffer đầu của nguồn RTSP chưa có PTS hợp lệ. Bỏ khung thay vì đoán một
             # mốc: một dấu thời gian sai đi thẳng vào cửa sổ cắt clip.

@@ -67,7 +67,7 @@ class TimeSync:
 
     def __init__(self) -> None:
         self._bases: dict[str, TimeBase] = {}
-        self._last_pts: dict[str, float] = {}
+        self._last_pts: dict[tuple[str, str], float] = {}
         self._lock = threading.Lock()
         self.resets: dict[str, int] = {}
         """Số lần phải neo lại vì PTS lùi, theo từng camera. Khác 0 nghĩa là nguồn có đứt
@@ -76,8 +76,17 @@ class TimeSync:
     def get(self, camera_code: str) -> TimeBase | None:
         return self._bases.get(camera_code)
 
-    def anchor(self, camera_code: str, pts_sec: float, now_unix: float) -> TimeBase | None:
+    def anchor(
+        self, camera_code: str, pts_sec: float, now_unix: float, *, series: str = "default"
+    ) -> TimeBase | None:
         """Lấy neo của camera, đặt nó từ khung này nếu chưa có hoặc nếu PTS đã lùi.
+
+        Args:
+            series: **tên chuỗi PTS** của nơi gọi. Neo thì dùng chung, nhưng phép phát hiện
+                lùi thì không: nhánh ghi đọc PTS **trước decode** (sample của
+                ``splitmuxsink``) còn nhánh model đọc PTS **sau muxer** — hai chuỗi khác
+                nhau cho cùng một camera. Gộp chúng lại thì mỗi lần mở đoạn ghi là một lần
+                báo "lùi" giả: đo được **2 lần/camera** trong một phiên 91 giây.
 
         Trả ``None`` khi chưa neo được — PTS không hợp lệ. Nơi gọi phải chịu được điều đó:
         vài buffer đầu của nguồn RTSP có thể không có PTS.
@@ -85,25 +94,27 @@ class TimeSync:
         if pts_sec <= 0 or now_unix <= 0:
             return None
 
+        key = (camera_code, series)
         existing = self._bases.get(camera_code)
-        last = self._last_pts.get(camera_code)
-        # So với PTS gần nhất, KHÔNG so với `first_pts_sec`: sau một đợt mất mạng dài thì
-        # PTS vẫn lớn hơn mốc đầu rất nhiều, nên so với mốc đầu sẽ không bao giờ thấy đứt.
+        last = self._last_pts.get(key)
+        # So với PTS gần nhất CỦA CÙNG CHUỖI, không so với `first_pts_sec`: sau một đợt mất
+        # mạng dài thì PTS vẫn lớn hơn mốc đầu rất nhiều, nên so với mốc đầu sẽ không bao
+        # giờ thấy đứt.
         went_backwards = last is not None and pts_sec < last
 
         if existing is not None and not went_backwards:
-            self._last_pts[camera_code] = pts_sec
+            self._last_pts[key] = pts_sec
             return existing
 
         with self._lock:
             # Kiểm lại trong khoá: hai luồng có thể cùng tới đây.
             found = self._bases.get(camera_code)
             if found is not None and not went_backwards:
-                self._last_pts[camera_code] = pts_sec
+                self._last_pts[key] = pts_sec
                 return found
             if found is not None:
                 self.resets[camera_code] = self.resets.get(camera_code, 0) + 1
             base = TimeBase(base_unix=now_unix, first_pts_sec=pts_sec)
             self._bases[camera_code] = base
-            self._last_pts[camera_code] = pts_sec
+            self._last_pts[key] = pts_sec
             return base
