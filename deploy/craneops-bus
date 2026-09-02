@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Điều khiển bus sự kiện (Redpanda, giao thức Kafka).
+#
+#: build          | Kéo image Redpanda
+#: up             | Chạy broker
+#: down           | Dừng. Message nằm trong volume craneops_bus, KHÔNG mất
+#: status         | Broker sống chưa, topic nào đang có, mỗi topic bao nhiêu message
+#: logs           | 40 dòng log cuối
+#: doctor         | Kiểm môi trường — chạy TRƯỚC khi nghi ngờ thứ khác
+#: topics         | Tạo mọi topic trong hợp đồng message
+#: tail           | Đọc message mới nhất của một topic
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
+
+compose() {
+  docker compose -f "$CRANEOPS_ROOT/build/docker-compose.bus.yml" "$@"
+}
+# Mọi lệnh rpk chạy TRONG container nên dùng listener nội bộ, không phải cổng ánh xạ ra host.
+rpk() { docker exec craneops-redpanda rpk "$@" -X brokers=localhost:9092; }
+
+cmd_build() { require_docker; compose pull; }
+
+cmd_up() {
+  require_docker
+  compose up -d
+  note "chờ broker sẵn sàng…"
+  local i
+  for i in $(seq 1 30); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' craneops-redpanda 2>/dev/null)" = "healthy" ] && break
+    sleep 2
+  done
+  note "Redpanda: Kafka :$(env_value build/.env.bus BUS_PORT 19092)  admin :$(env_value build/.env.bus BUS_ADMIN_PORT 19644)"
+  cmd_topics
+}
+
+cmd_down() { require_docker; compose down; }
+
+cmd_status() {
+  require_docker
+  if ! docker ps --format '{{.Names}}' | grep -qx craneops-redpanda; then
+    row "broker" "KHÔNG chạy" 28
+    return 0
+  fi
+  row "broker" "$(docker inspect -f '{{.State.Health.Status}}' craneops-redpanda 2>/dev/null)" 28
+  # `rpk topic list` không cho số message; `describe -p` mới có, ở cột HIGH-WATERMARK.
+  # ⚠️ Đọc cột theo TÊN, không theo chỉ số: `$5` là LOG-START-OFFSET (luôn 0 khi chưa dọn
+  # log), nên bảng sẽ báo "0 message" cho mọi topic — trông như broker rỗng trong khi nó
+  # vừa nhận vài trăm message.
+  local t out col
+  for t in $(rpk topic list 2>/dev/null | awk 'NR>1{print $1}'); do
+    out=$(rpk topic describe -p "$t" 2>/dev/null)
+    col=$(printf '%s\n' "$out" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="HIGH-WATERMARK") print i}')
+    row "$t" "$(printf '%s\n' "$out" | awk -v c="$col" 'NR>1 && c{s+=$c} END{printf "%d message", s+0}')" 28
+  done
+  return 0
+}
+
+cmd_logs() { require_docker; compose logs --tail 40 redpanda; }
+
+cmd_doctor() {
+  require_docker
+  row "image" "$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 redpanda || echo 'CHƯA kéo — chạy: craneops-bus build')"
+  row "network craneops" "$(docker network inspect craneops >/dev/null 2>&1 && echo có || echo 'THIẾU')"
+  row "container" "$(docker ps -a --format '{{.Names}} {{.Status}}' | grep craneops-redpanda || echo 'chưa tạo')"
+  if docker ps --format '{{.Names}}' | grep -qx craneops-redpanda; then
+    row "cluster" "$(rpk cluster health 2>&1 | grep -m1 -i healthy || echo 'không trả lời')"
+  fi
+  return 0
+}
+
+cmd_topics() {
+  require_docker
+  # Sinh từ enum Topic, KHÔNG gõ tay: một danh sách thứ hai là một chỗ để trôi khỏi
+  # hợp đồng, và topic gõ sai chỉ lộ ra khi consumer chờ mãi không thấy gì.
+  local names
+  names=$(docker run --rm -v "$CRANEOPS_ROOT:/app:ro" -w /app python:3.12-slim \
+    python -c 'import re,pathlib
+src = pathlib.Path("common/message.py").read_text()
+block = src.split("class Topic(StrEnum):")[1].split("\n\n\n")[0]
+print(" ".join(re.findall(r"= \"([^\"]+)\"", block)))' 2>/dev/null)
+  [ -z "$names" ] && die "không đọc được danh sách topic từ common/message.py"
+  # shellcheck disable=SC2086
+  rpk topic create $names 2>&1 | sed 's/^/  /'
+  return 0
+}
+
+cmd_tail() {
+  require_docker
+  [ $# -ge 1 ] || die "cần tên topic. Xem: craneops-bus status"
+  local topic="$1" n="${2:-5}"
+  rpk topic consume "$topic" --num "$n" --offset end
+}
+
+case "${1:-}" in
+  build|up|down|status|logs|doctor|topics|tail) cmd="$1"; shift; "cmd_$cmd" "$@" ;;
+  -h|--help|help|"") printf 'craneops-bus <lệnh>\n\n'; print_commands "$0" ;;
+  *) unknown_command "$0" "${1:-}" ;;
+esac

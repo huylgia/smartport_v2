@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from common.enum import CameraRole
+from common.message import BBox, Detection
 
 if TYPE_CHECKING:
     from internal.pkg.nptypes import Image
@@ -76,11 +77,25 @@ class InferenceStats:
     completed: int = 0
     dropped: int = 0
     failed: int = 0
+    """Lời gọi Triton hỏng."""
+
+    sink_failed: int = 0
+    """Callback ``on_result`` ném. Khác ``failed``: suy luận đã xong, chỗ hỏng là nơi nhận."""
+
+    last_error: str = ""
+    """Thông báo lỗi ĐẦU TIÊN gặp phải. Một con số đếm nói rằng có hỏng; nó không nói hỏng
+    ở đâu, và không có dòng này thì người vận hành chỉ còn cách đoán."""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def bump(self, name: str) -> None:
         with self._lock:
             setattr(self, name, getattr(self, name) + 1)
+
+    def note_error(self, exc: BaseException) -> None:
+        """Ghi lỗi ĐẦU TIÊN, giữ nguyên các lỗi sau — cái đầu thường là nguyên nhân."""
+        with self._lock:
+            if not self.last_error:
+                self.last_error = f"{type(exc).__name__}: {exc}"
 
     def snapshot(self) -> dict[str, int]:
         with self._lock:
@@ -89,12 +104,13 @@ class InferenceStats:
                 "completed": self.completed,
                 "dropped": self.dropped,
                 "failed": self.failed,
+                "sink_failed": self.sink_failed,
             }
 
     @property
     def clean(self) -> bool:
         with self._lock:
-            return self.dropped == 0 and self.failed == 0
+            return self.dropped == 0 and self.failed == 0 and self.sink_failed == 0
 
 
 class InferenceClient:
@@ -108,7 +124,7 @@ class InferenceClient:
     def __init__(
         self,
         url: str,
-        on_result: Callable[[FrameJob, list[dict[str, Any]]], None],
+        on_result: Callable[[FrameJob, list[Detection]], None],
         *,
         workers: int = 2,
         queue_size: int = 8,
@@ -172,14 +188,28 @@ class InferenceClient:
                 return
             try:
                 results = self._infer(client, job)
-            except Exception:
+            except Exception as exc:
                 # Một khung hỏng không được giết worker: camera khác dùng chung nó.
+                self.stats.note_error(exc)
                 self.stats.bump("failed")
                 continue
             self.stats.bump("completed")
-            self._on_result(job, results)
 
-    def _infer(self, client: Any, job: FrameJob) -> list[dict[str, Any]]:
+            try:
+                self._on_result(job, results)
+            except Exception as exc:
+                # ⚠️ Callback nằm TRONG try, và đó không phải cẩn thận thừa: bản đầu để nó
+                # ngoài, nên một lỗi ở nơi nhận (đo được: biến `bus` bị che, gọi `publish`
+                # lên GStreamer Bus) giết luôn thread worker. Triệu chứng là `completed`
+                # vẫn tăng tới lúc thread cuối chết rồi mọi thứ dừng hẳn — không exception
+                # nào ra tới đâu, vì thread chết lặng lẽ.
+                #
+                # Đếm riêng: "Triton hỏng" và "nơi nhận hỏng" là hai vấn đề khác nhau và
+                # cần hai cách sửa khác nhau.
+                self.stats.note_error(exc)
+                self.stats.bump("sink_failed")
+
+    def _infer(self, client: Any, job: FrameJob) -> list[Detection]:
         import numpy as np
         import tritonclient.grpc as grpcclient
 
@@ -206,25 +236,32 @@ def output_names(role: CameraRole) -> list[str]:
     return names
 
 
-def to_detections(out: dict[str, Any], role: CameraRole) -> list[dict[str, Any]]:
-    """Tensor của BLS → danh sách hợp lệ cho ``common.message.Detection``.
+def to_detections(out: dict[str, Any], role: CameraRole) -> list[Detection]:
+    """Tensor của BLS → :class:`~common.message.Detection` đã hợp lệ.
+
+    Trả model chứ không trả ``dict``: validator của ``BBox`` (chặn hộp lật ngược) và của
+    ``Confidence`` chạy **ngay tại đây**, tức bên trong ``try`` của worker. Một hộp hỏng
+    làm mất một khung, không phải mất cả nhánh.
 
     Hàm thuần, tách khỏi lời gọi mạng: đây là chỗ có logic thật, và nó phải test được mà
     không cần Triton lẫn ``tritonclient``.
     """
-    found: list[dict[str, Any]] = []
+    found: list[Detection] = []
     for i in range(len(out["labels"])):
-        item: dict[str, Any] = {
-            "class_name": out["labels"][i].decode("utf-8"),
-            "confidence": float(out["scores"][i]),
-            "bbox": tuple(int(v) for v in out["boxes"][i]),
-        }
+        attrs: dict[str, float] = {}
         if role is CameraRole.TCODE:
             code = int(out["codes"][i])
             # -1 = không đọc được (hộp nằm ngoài ảnh). Bỏ khoá thay vì gửi một số âm:
             # `attrs` là ánh xạ tên->điểm, và một mục "headcode_-1" sẽ đi thẳng vào rule
             # như thể nó là một số xe thật.
             if code >= 0:
-                item["attrs"] = {f"headcode_{code:02d}": float(out["code_scores"][i])}
-        found.append(item)
+                attrs[f"headcode_{code:02d}"] = float(out["code_scores"][i])
+        found.append(
+            Detection(
+                class_name=out["labels"][i].decode("utf-8"),
+                confidence=float(out["scores"][i]),
+                bbox=BBox.from_xyxy(tuple(float(v) for v in out["boxes"][i])),
+                attrs=attrs,
+            )
+        )
     return found

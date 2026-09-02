@@ -30,11 +30,15 @@ dependencies = [
 ort = ["onnxruntime-gpu>=1.17,<2"]
 # Client Triton (đường chạy chính ở production).
 triton = ["tritonclient[grpc]>=2.44,<3"]
+# Bus sự kiện (Kafka/Redpanda). lz4 cho nén: rẻ CPU hơn gzip nhiều ở cùng lớp dữ liệu.
+bus = ["kafka-python-ng>=2.2,<3", "lz4>=4.3,<5"]
 # Oracle CATOS.
 oracle = ["oracledb>=2.2,<3"]
 # tools/export_models.py: .t7 -> ONNX -> config.pbtxt -> TensorRT plan.
 export = ["onnx>=1.16,<2"]
 dev = [
+    "kafka-python-ng>=2.2,<3",
+    "lz4>=4.3,<5",
     # ds_app gọi Triton qua đây; có trong venv dev để test worker chạy được và mypy thấy.
     "tritonclient[grpc]>=2.44,<3",
     "ruff>=0.6",
@@ -152,6 +156,11 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = ["tensorflow.*", "tf2onnx.*", "keras_cv_attention_models.*", "h5py.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# kafka-python-ng không kèm stub (không có py.typed). tritonclient cũng vậy.
+module = ["kafka.*", "tritonclient.*"]
 ignore_missing_imports = true
 
 # ----------------------------------------------------------------------------

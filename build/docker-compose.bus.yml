@@ -1,0 +1,76 @@
+# Bus sự kiện: Redpanda (giao thức Kafka), một node.
+#
+# KHÔNG dùng systemd: môi trường triển khai không có quyền sudo, nên mọi thứ chạy qua
+# Docker. Xem docs/DESIGN_NOTES.md DN-004.
+#
+#   docker compose -f build/docker-compose.bus.yml up -d
+#
+# Vì sao Redpanda chứ không phải Kafka: cùng giao thức, nhưng một binary C++ duy nhất —
+# không JVM, không ZooKeeper/KRaft riêng, không cần chỉnh heap. Trên máy đích i7-12700 vốn
+# phải gánh cả ds_app lẫn Triton, khoản đó không nhỏ. Client vẫn là thư viện Kafka bình
+# thường, nên đổi lại sau này chỉ là đổi địa chỉ.
+
+name: craneops
+
+services:
+  redpanda:
+    image: ${REDPANDA_IMAGE:-redpandadata/redpanda:v24.2.7}
+    container_name: craneops-redpanda
+    command:
+      - redpanda
+      - start
+      # `--mode dev-container` bỏ mọi phép kiểm điều chỉnh hệ thống (AIO, hugepages,
+      # CPU governor) vốn cần quyền root trên host. Không có nó, Redpanda TỪ CHỐI khởi
+      # động trên máy chưa `rpk redpanda tune`, mà `tune` cần sudo.
+      - --mode
+      - dev-container
+      # 1 core là đủ và là chủ ý: tải thật ~7,4 message/s (HARDWARE_BUDGET §6.1), còn
+      # mặc định của Redpanda là chiếm mọi core mà nó thấy — trên máy dùng chung thì đó
+      # là lấy CPU của người khác.
+      - --smp
+      - "${REDPANDA_SMP:-1}"
+      - --memory
+      - "${REDPANDA_MEMORY:-1G}"
+      - --reserve-memory
+      - "0M"
+      - --overprovisioned
+      - --node-id
+      - "0"
+      - --check=false
+      # Hai listener: `internal` cho container cùng network (dùng tên service), `external`
+      # cho host. Chỉ khai một cái thì bên kia nhận được advertised address mà nó không
+      # phân giải được, và biểu hiện là client treo ở lần metadata đầu chứ không báo lỗi.
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports:
+      # Cổng cấu hình được: máy dùng chung, 9092 thường đã bị dịch vụ khác chiếm.
+      - "${BUS_PORT:-19092}:19092"
+      - "${BUS_ADMIN_PORT:-19644}:9644"
+    volumes:
+      - bus:/var/lib/redpanda/data
+    networks: [craneops]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${BUS_CPUS:-2}"
+          memory: ${BUS_MEMORY:-2g}
+          pids: 512
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "-X", "brokers=localhost:9092"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  # Volume THƯỜNG: message phải sống qua `compose down`. Retention do topic quyết định,
+  # không do vòng đời container.
+  bus:
+
+networks:
+  # `external`: network do bộ lệnh craneops tạo và sở hữu, không thuộc project nào.
+  craneops:
+    external: true

@@ -76,7 +76,9 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         "pyyaml>=6,<7" \
         "numpy>=1.26,<2" \
         "loguru>=0.7,<0.8" \
-        "tritonclient[grpc]>=2.41,<3"
+        "tritonclient[grpc]>=2.41,<3" \
+        "kafka-python-ng>=2.2,<3" \
+        "lz4>=4.3,<5"
 # tritonclient: ds_app gọi model BLS của Triton qua gRPC. Chỉ extra `grpc` — `http` kéo
 # thêm aiohttp/geventhttpclient mà nhánh này không dùng.
 #

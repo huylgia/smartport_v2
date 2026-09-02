@@ -231,11 +231,22 @@ class PerceptionMessage(_Msg):
     """Chỉ số khung **gốc**, đã khôi phục qua ``restore_frame_id``. Xem timebase."""
 
     start_ts: Timestamp
+    """Thời điểm unix của **khung ``frame_id == 0``** — tức khung đầu tiên producer thấy,
+    không phải gốc thời gian của nguồn RTSP. Hai mốc đó lệch nhau đúng PTS của khung đầu."""
+
     fps: float = Field(gt=0)
     """FPS của **nguồn** (30 với smartport), không phải fps sau decimate."""
 
     frame_ts: Timestamp
-    """``start_ts + frame_id / fps``. Dùng trường này, đừng tự tính lại."""
+    """Thời điểm khung được **chụp**, lấy từ PTS của chính khung đó.
+
+    Bằng ``start_ts + frame_id / fps`` — đo trên GC03 qua 330 message: lệch **0,0 ms**,
+    vì ``nvstreammux`` cấp PTS đều tuyệt đối.
+
+    **Vẫn dùng trường này, đừng tự tính lại.** Đẳng thức trên đúng khi không khung nào
+    mất; một khung rơi trên đường truyền RTSP không làm ``frame_id`` tăng, nên công thức
+    tính tay sẽ tụt lại sau còn PTS thì không. Trường này là mốc, công thức chỉ là kiểm
+    tra chéo."""
 
     segment_hint: str | None = None
     """Đường dẫn segment mp4 chứa khung này — ``evidenced`` dùng để biết cắt clip ở đâu.

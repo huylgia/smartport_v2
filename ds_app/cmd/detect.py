@@ -27,7 +27,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -35,6 +34,7 @@ if str(REPO) not in sys.path:
 
 from common.config import load_crane  # noqa: E402
 from common.enum import CameraRole  # noqa: E402
+from common.message import Detection, PerceptionMessage, perception_topic  # noqa: E402
 from ds_app.src.pipeline.elements import SOURCE_QUEUE, apply_props, link_pads, make  # noqa: E402
 from ds_app.src.pipeline.inference import (  # noqa: E402
     BLS_FOR_ROLE,
@@ -44,6 +44,7 @@ from ds_app.src.pipeline.inference import (  # noqa: E402
 from ds_app.src.pipeline.model import ModelBranch, roles_with_cameras  # noqa: E402
 from ds_app.src.pipeline.sources import make_source_bin, source_bin_name  # noqa: E402
 from ds_app.src.pipeline.timesync import TimeSync  # noqa: E402
+from gateway.contract.bus import BusProducer  # noqa: E402
 
 
 def _args() -> argparse.Namespace:
@@ -57,6 +58,11 @@ def _args() -> argparse.Namespace:
         help="crane | tcode | all — role nào có camera chạy model",
     )
     ap.add_argument("--triton", default="localhost:19001", help="gRPC của Triton")
+    ap.add_argument(
+        "--bus",
+        default="",
+        help="bootstrap Kafka; để trống thì KHÔNG publish (chỉ in ra màn hình)",
+    )
     ap.add_argument("--duration", type=float, default=60.0)
     ap.add_argument("--quiet", action="store_true", help="chỉ in tổng kết, không in từng khung")
     return ap.parse_args()
@@ -113,20 +119,38 @@ def main() -> int:
     seen: dict[str, int] = {}
     lock = threading.Lock()
 
-    def on_result(job: FrameJob, found: list[dict[str, Any]]) -> None:
+    def on_result(job: FrameJob, found: list[Detection]) -> None:
         with lock:
             seen[job.camera_code] = seen.get(job.camera_code, 0) + 1
             n = seen[job.camera_code]
+
+        if bus is not None:
+            # Dựng bằng pydantic nên một trường sai là lỗi TẠI ĐÂY, không phải rác nằm
+            # trên topic tới lúc consumer nổ.
+            message = PerceptionMessage(
+                crane_id=crane.crane_id,
+                camera_code=job.camera_code,
+                role=job.role,
+                frame_id=job.frame_id,
+                start_ts=job.start_ts,
+                fps=crane.source_fps,
+                frame_ts=job.frame_ts,
+                segment_hint=job.segment_hint,
+                detections=found,
+            )
+            # Khoá = camera_code: cùng khoá ⇒ cùng phân vùng ⇒ giữ thứ tự. Message của
+            # một camera tới consumer sai thứ tự sẽ làm hỏng mọi phép đếm chuỗi liên tiếp.
+            bus.publish(message, key=job.camera_code, topic=perception_topic(job.role))
         if args.quiet:
             return
         what = ", ".join(
             # Kích thước hộp có mặt vì nó quyết định chất lượng crop đưa vào classifier:
             # crop huấn luyện có tỉ lệ rộng/cao ~1,0, nên một hộp dẹt bị ép về 224x224
             # vuông sẽ méo khác hẳn lúc huấn luyện.
-            f"{d['class_name']}@{d['confidence']:.2f}"
-            + f" {d['bbox'][2] - d['bbox'][0]}x{d['bbox'][3] - d['bbox'][1]}"
-            + f"(ar {(d['bbox'][2] - d['bbox'][0]) / max(1, d['bbox'][3] - d['bbox'][1]):.2f})"
-            + ("".join(f" [{k}={v:.2f}]" for k, v in d.get("attrs", {}).items()))
+            f"{d.class_name}@{d.confidence:.2f}"
+            + f" {d.bbox.x2 - d.bbox.x1:.0f}x{d.bbox.y2 - d.bbox.y1:.0f}"
+            + f"(ar {(d.bbox.x2 - d.bbox.x1) / max(1.0, d.bbox.y2 - d.bbox.y1):.2f})"
+            + ("".join(f" [{k}={v:.2f}]" for k, v in d.attrs.items()))
             for d in found
         )
         print(  # noqa: T201
@@ -134,6 +158,12 @@ def main() -> int:
             f"{len(found)} vật  {what or '(không có)'}   (khung thứ {n})",
             flush=True,
         )
+
+    bus = BusProducer(args.bus, client_id="ds_app") if args.bus else None
+    if bus is not None:
+        # Nạp sẵn metadata cho ĐÚNG các topic sắp dùng: không có bước này thì hai message
+        # đầu mất trong lúc client hỏi cluster (xem BusProducer.start).
+        bus.start(perception_topic(role) for role in by_role)
 
     client = InferenceClient(args.triton, on_result)
     client.start()
@@ -162,9 +192,12 @@ def main() -> int:
         branches.append(branch)
 
     errors: list[str] = []
-    bus = pipeline.get_bus()
-    bus.add_signal_watch()
-    bus.connect("message::error", lambda _b, m: errors.append(m.parse_error()[0].message))
+    # `gst_bus`, KHÔNG phải `bus`: cái tên đó đã thuộc về producer Kafka ở trên, và gán đè
+    # lên nó làm mọi `publish()` gọi lên GStreamer Bus. Đo được — nó không nổ ở đây mà ở
+    # tận `flush()` lúc thoát, sau khi đã im lặng bỏ toàn bộ message.
+    gst_bus = pipeline.get_bus()
+    gst_bus.add_signal_watch()
+    gst_bus.connect("message::error", lambda _b, m: errors.append(m.parse_error()[0].message))
 
     loop = GLib.MainLoop()
     GLib.timeout_add_seconds(int(args.duration), lambda: (loop.quit(), False)[1])
@@ -177,14 +210,26 @@ def main() -> int:
     finally:
         pipeline.set_state(Gst.State.NULL)
         client.stop()
+        if bus is not None:
+            # Trước khi đọc thống kê: phần còn trong bộ đệm chưa rời máy, và không flush
+            # thì bảng dưới sẽ báo "đã gửi" cho những message chưa từng tới broker.
+            bus.flush()
+            bus.close()
 
     elapsed = time.time() - started
     stats = client.stats.snapshot()
     print(  # noqa: T201
         f"\n--- {elapsed:.1f}s ---\n"
         f"  gửi {stats['submitted']}  xong {stats['completed']}  "
-        f"BỎ {stats['dropped']}  LỖI {stats['failed']}"
+        f"BỎ {stats['dropped']}  LỖI {stats['failed']}  LỖI-NHẬN {stats['sink_failed']}"
+        + (f"\n  lỗi đầu tiên: {client.stats.last_error}" if client.stats.last_error else "")
     )
+    if bus is not None:
+        b = bus.stats.snapshot()
+        print(  # noqa: T201
+            f"  kafka: xếp {b['queued']}  broker ack {b['acked']}  "
+            f"BỎ {b['dropped']}  LỖI {b['failed']}  còn bay {b['in_flight']}"
+        )
     for cams in by_role.values():
         for cam in cams:
             got = seen.get(cam.code, 0)
@@ -199,7 +244,8 @@ def main() -> int:
 
     # Bỏ khung hoặc lỗi là **thất bại**, không phải cảnh báo: cả hai đều im lặng lúc chạy
     # thật, và đây là chỗ duy nhất chúng lộ ra.
-    return 0 if not errors and client.stats.clean else 1
+    bus_ok = bus is None or bus.stats.clean
+    return 0 if not errors and client.stats.clean and bus_ok else 1
 
 
 if __name__ == "__main__":

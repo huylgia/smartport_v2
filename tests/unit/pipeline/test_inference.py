@@ -167,14 +167,11 @@ def test_a_tcode_result_carries_the_head_code_as_a_flat_attr() -> None:
         CameraRole.TCODE,
     )
 
-    assert out == [
-        {
-            "class_name": "head",
-            "confidence": pytest.approx(0.94),
-            "bbox": (10, 20, 30, 40),
-            "attrs": {"headcode_05": pytest.approx(0.86)},
-        }
-    ]
+    assert len(out) == 1
+    assert out[0].class_name == "head"
+    assert out[0].confidence == pytest.approx(0.94)
+    assert out[0].bbox.as_tuple() == (10, 20, 30, 40)
+    assert out[0].attrs == {"headcode_05": pytest.approx(0.86)}
 
 
 def test_an_unread_head_code_produces_no_attr_at_all() -> None:
@@ -191,7 +188,7 @@ def test_an_unread_head_code_produces_no_attr_at_all() -> None:
         CameraRole.TCODE,
     )
 
-    assert "attrs" not in out[0]
+    assert out[0].attrs == {}
 
 
 def test_a_crane_result_has_no_code_fields() -> None:
@@ -204,8 +201,8 @@ def test_a_crane_result_has_no_code_fields() -> None:
         CameraRole.CRANE,
     )
 
-    assert out[0]["class_name"] == "container"
-    assert "attrs" not in out[0]
+    assert out[0].class_name == "container"
+    assert out[0].attrs == {}
 
 
 def test_only_tcode_asks_for_the_classifier_outputs() -> None:

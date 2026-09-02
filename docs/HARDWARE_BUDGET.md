@@ -374,6 +374,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-02 | dev | Nhánh model chạy thật, crane + tcode | **333/333 khung, 0 bỏ, 0 lỗi** · 98 % nhịp đặt | §6.1 |
 | 2026-09-02 | dev | Thứ tự kênh khung DeepStream | RGBA ⇒ phải đảo; sai kênh điểm tụt **0,932 → 0,507** | §6.2 |
 | 2026-09-02 | dev | Tiền xử lý crop cho classifier số xe | BGR **100 %** / RGB 87,4 % · nội suy không đổi gì · hình học crop khớp | §6.2 |
+| 2026-09-02 | dev | ds_app -> Kafka, 3 camera | **330 gửi / 330 ack, 0 mất** · trục thời gian lệch **0,0 ms** | §6.1 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---

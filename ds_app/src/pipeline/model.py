@@ -193,7 +193,12 @@ class ModelBranch:
             role=self.role,
             frame_id=frame_id,
             frame_ts=frame_ts,
-            start_ts=base.to_unix(0.0),
+            # `base_unix`, KHÔNG phải `to_unix(0.0)`. Cái sau là gốc PTS của NGUỒN,
+            # còn `frame_id` đếm từ khung đầu tiên PIPELINE thấy — hai gốc khác nhau,
+            # và hệ quả là `start_ts + frame_id/fps` lệch `frame_ts` một khoảng cố
+            # định bằng PTS của khung đầu (đo được 0,475 s). Nhịp thì vẫn đúng, nên
+            # không có gì báo — chỉ là mọi cửa sổ thời gian trượt đi nửa giây.
+            start_ts=base.base_unix,
             image=image,
             segment_hint=(
                 self._segment_hint(camera.code, frame_ts) if self._segment_hint else None

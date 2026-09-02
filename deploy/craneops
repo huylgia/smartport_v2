@@ -17,9 +17,9 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/craneops-lib.sh"
 
 BIN="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
-# Thứ tự có ý nghĩa: ds_app gọi Triton qua gRPC, nên Triton phải sẵn sàng trước.
-# `down` đi ngược lại.
-SERVICES=(triton ds)
+# Thứ tự có ý nghĩa: ds_app gọi Triton qua gRPC và đẩy message lên bus, nên cả hai phải
+# sẵn sàng trước. `down` đi ngược lại.
+SERVICES=(bus triton ds)
 
 # Service có hỗ trợ lệnh này không — đọc từ chính bảng `#:` của nó, nên không có danh
 # sách thứ hai để trôi khỏi thực tế.
@@ -82,7 +82,7 @@ cmd_services() {
 # cho quyền đó. Đặt `CRANEOPS_BIN=/usr/local/bin` nếu muốn mọi user trên máy dùng chung.
 BIN_DIR="${CRANEOPS_BIN:-$HOME/.local/bin}"
 
-LINKS=(craneops craneops-triton craneops-ds)
+LINKS=(craneops craneops-bus craneops-triton craneops-ds)
 
 # Symlink chứ KHÔNG copy: `git pull` là cập nhật xong, không phải cài lại. Các script tự
 # phân giải vị trí thật bằng `readlink -f` nên gọi qua symlink vẫn tìm đúng gốc repo —

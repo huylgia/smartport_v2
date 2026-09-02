@@ -84,6 +84,7 @@ services:
         --role ${ROLE:-all}
         --duration ${DUR:-60}
         --triton ${TRITON:-triton:8001}
+        --bus ${BUS:-redpanda:9092}
         ${QUIET:+--quiet}
     restart: "no"
 
