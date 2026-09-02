@@ -26,8 +26,9 @@ __all__ = [
 class StrEnum(str, Enum):
     """``enum.StrEnum`` của Python 3.11, viết lại để chạy được trên 3.10.
 
-    ``common/`` phải tương thích 3.10 vì ``ds_app`` dùng chung ``common/message.py``
-    và nó chạy trong container DeepStream (Ubuntu 22.04 ⇒ Python 3.10).
+    ``common/`` phải tương thích 3.10 vì **máy đích ở cảng** chạy 3.10 — xem sàn
+    ``requires-python`` trong ``pyproject.toml``. Không phải vì container DeepStream:
+    image DS 8.0 là Ubuntu 24.04 / Python 3.12, nên nó không ràng buộc gì ở đây.
 
     ``__str__`` bắt buộc phải có: ``class F(str, Enum)`` trần cho ``f"{F.A}"`` ra
     ``"F.A"`` chứ không phải ``"a"``, và lỗi đó chỉ lộ ra khi message đã lên Kafka.

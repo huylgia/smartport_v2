@@ -213,7 +213,13 @@ def eval_pico(client: Any, model: str, folder: Path) -> Result:
         image = cv2.imread(str(path))
         height, width = image.shape[:2]
         # BGR THÔ float32 NCHW: /255 và đảo kênh đã nằm trong model (DN-012).
-        resized = cv2.resize(image, (416, 416), interpolation=cv2.INTER_LINEAR)
+        #
+        # ⚠️ INTER_CUBIC, phép nội suy mà PicoDet được huấn luyện với (`PicoConfig` của v1,
+        # và luật chung ở `vision/preprocess.py`). Bản trước để LINEAR ở đây: recall giống
+        # hệt và precision chỉ lệch một hộp, nên bảng số trông vẫn ổn — nhưng **toạ độ hộp
+        # lệch tới 17 px**, và CRANE01 gán lane bằng chính điểm mốc của hộp. Đo bằng con số
+        # tổng thì không thấy; phải so từng hộp mới thấy.
+        resized = cv2.resize(image, (416, 416), interpolation=cv2.INTER_CUBIC)
         tensor = resized.astype(np.float32).transpose(2, 0, 1)[np.newaxis, ...]
         boxes = infer(client, model, tensor, "tmp_16", "FP32")[0]
         scores = infer(client, model, tensor, "concat_8.tmp_0", "FP32")[0]

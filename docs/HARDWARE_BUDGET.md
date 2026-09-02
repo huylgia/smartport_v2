@@ -368,6 +368,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Giữ 6 đoạn 30 s | hội tụ đúng **6 + 1 `.part`** · **55 MB**/camera ⇒ ~0,55 GB cả cẩu | chạy 4 phút |
 | 2026-09-01 | dev | Đoạn 30 s có ra đúng 30 s? | **30,00 s** (18 GOP chẵn) | `record --segment-sec 30` |
 | 2026-09-01 | dev | Nguồn giờ cho đồng hồ clip | tên đoạn **0 s** · birthtime **+2 s** · mtime **+32 s** | DN-015 |
+| 2026-09-02 | dev | Nội suy resize cho PicoDet | `CUBIC` vs `LINEAR`: recall **bằng nhau**, hộp lệch **tới 17,2 px** | §6.2 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -494,9 +495,18 @@ Công cụ: `tools/golden/accuracy.py` (so với **nhãn**), `tools/golden/parit
 | `craneops_headcode_cls` | `cls-truckHead/samples` | 451 | top-1 | **100,0 %** |
 | `craneops_ccode_rec_h` | `rec-containerNo/samples/h` | 4 | khớp chuỗi | 50,0 % ¹ |
 | `craneops_ccode_rec_v` | `rec-containerNo/samples/v` | 3 | khớp chuỗi | **100,0 %** |
-| `craneops_truckitems_pico` | `det-truckItems/samples` | 111 | recall / prec @IoU 0,5 | **98,7 % / 99,2 %** |
-| `craneops_truckhead_pico` | `det-truckHead/samples` | 100 | recall / prec @IoU 0,5 | **97,8 % / 98,5 %** |
+| `craneops_truckitems_pico` | `det-truckItems/samples` | 111 | recall / prec @IoU 0,5 | **98,7 % / 98,7 %** |
+| `craneops_truckhead_pico` | `det-truckHead/samples` | 100 | recall / prec @IoU 0,5 | **97,8 % / 99,3 %** |
 | `craneops_ccode_det_{h,v}` | — | — | — | **không có tập dữ liệu** |
+
+Hai model pico đo lại 2026-09-02 với `INTER_CUBIC` (phép nội suy chúng được huấn luyện
+với) thay cho `INTER_LINEAR` mà công cụ dùng nhầm trước đó. **Recall không đổi** ở cả hai;
+precision đổi hai chiều ngược nhau, mỗi bên đúng một hộp — tức nhiễu.
+
+Điều số tổng KHÔNG cho thấy, và là lý do thật để đổi: cùng một ảnh, hai phép nội suy cho
+hộp **lệch nhau tới 17,2 px** (`truckitems`) và 14,5 px (`truckhead`), trên 138 cặp hộp mà
+cả hai đều tìm ra cùng số lượng và cùng lớp. `CRANE01` gán lane bằng điểm mốc của chính
+hộp đó, nên sai lệch cỡ này lật được phán quyết ở sát biên vùng.
 
 ¹ Hai lỗi trên bốn ảnh (`MRKU6934673`, `VKLU2092734`), **cả hai bị `is_container_code` loại**
 (mã kiểm tra ISO 6346) nên không lọt xuống nghiệp vụ — chúng thành lượt đọc bị từ chối, và
