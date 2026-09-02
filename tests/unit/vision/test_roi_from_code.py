@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from internal.pkg.vision.preprocess import CODE_CONTEXT, fit_long_side, roi_from_code
+from internal.pkg.vision.preprocess import (
+    CODE_CONTEXT,
+    CODE_CONTEXT_BY_DIM,
+    fit_long_side,
+    roi_from_code,
+)
 
 CODE = [(1000.0, 700.0), (1174.0, 700.0), (1174.0, 728.0), (1000.0, 728.0)]
 """Mã 174x28 px — kích thước trung vị đo được trên mẫu GC03."""
@@ -76,3 +81,31 @@ def test_the_measured_context_stays_reachable() -> None:
     a = roi_from_code(CODE, 2688, 1520, context=3.0)
     b = roi_from_code(CODE, 2688, 1520, context=5.0)
     assert (b[2] - b[0]) / (a[2] - a[0]) == pytest.approx(5 / 3, rel=0.02)
+
+
+def test_forty_foot_uses_a_tighter_context_than_twenty() -> None:
+    """Mã 40 feet **to hơn trong khung** — đo trên cả ba camera có cả hai loại: 1,17-1,48
+    lần. Vùng tính theo bội cạnh mã, nên cùng ``k`` cho 40 feet một vùng lớn hơn theo tỉ
+    lệ đó; hạ ``k`` kéo hai loại về gần cùng kích thước tuyệt đối.
+    """
+    assert CODE_CONTEXT_BY_DIM["40feet"] < CODE_CONTEXT_BY_DIM["20feet"]
+
+
+def test_the_context_sets_the_text_size_the_detector_sees() -> None:
+    """⚠️ ``k`` KHÔNG bù được khoảng cách camera — nó đã tự bù rồi.
+
+    Với ``k`` + ``fit_long_side``, chữ trong đầu vào luôn rộng ``640/k`` bất kể mã to nhỏ
+    trong khung. Nên hạ ``k`` cho 40 feet làm chữ **to lên**, chứ không kéo nó về gần điểm
+    vận hành. Test này để ai đổi ``k`` vì lý do "khoảng cách camera" phải đọc lại.
+    """
+    for long_side in (120, 175, 230):
+        quad = [
+            (1000.0, 700.0),
+            (1000.0 + long_side, 700.0),
+            (1000.0 + long_side, 724.0),
+            (1000.0, 724.0),
+        ]
+        x1, _, x2, _ = roi_from_code(quad, 2688, 1520, context=4.0)
+        region_w = (x2 - x1) * 2688
+        # Mã chiếm đúng 1/k bề rộng vùng, không phụ thuộc mã to hay nhỏ.
+        assert long_side / region_w == pytest.approx(1 / 4.0, rel=0.02)

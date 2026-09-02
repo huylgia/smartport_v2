@@ -787,6 +787,29 @@ ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", v�
 **4,89 lần** — hai phép đo độc lập, cùng một con số. Đó là cơ sở của `roi_from_code`, cho
 phép suy vùng từ 4 điểm khoanh mã thay vì vẽ vùng rồi dò.
 
+**Vùng crop KHÔNG tách được lane trên camera 1508.** Tâm vùng lane 1 và lane 2 ở đó chỉ
+cách nhau **0,7-1,0 lần** cạnh mã, nên ở bất kỳ `k >= 1` nào hai vùng đã chồng nhau — hạ
+`k` không cứu được. Bốn camera còn lại chỉ có **một** lane nên không có rủi ro này. v1 cũng
+không tách bằng ROI: hai vùng chồng nhau cùng thấy cả hai mã, mỗi vùng gắn nhãn lane của
+chính nó, và tầng **rule** mới quyết (`CCODE01` + bỏ phiếu chéo camera + đối chiếu manifest).
+
+**Mã 40 feet to hơn 20 feet trong khung**, nhất quán trên cả ba camera có cả hai loại:
+
+| Camera | 20 feet | 40 feet | tỉ lệ |
+|---|---:|---:|---:|
+| 1511 | 118 px | 175 px | 1,48x |
+| 1514 | 182 px | 222 px | 1,22x |
+| 1515 | 149 px | 174 px | 1,17x |
+
+Vì vùng tính theo bội cạnh mã, cùng một `k` cho 40 feet một vùng lớn hơn theo tỉ lệ đó.
+`CODE_CONTEXT_BY_DIM` vì thế dùng `40feet: 3`, `20feet: 5` — kéo hai loại về gần cùng kích
+thước tuyệt đối.
+
+⚠️ Việc này **không** đổi tỉ lệ chữ detector thấy. Với `k` + `fit_long_side`, chữ trong đầu
+vào luôn rộng `640/k`, **độc lập** với mã to nhỏ trong khung — công thức đã tự chuẩn hoá
+khoảng cách camera. Nên `40feet: 3` làm chữ **to lên** (213 px so với 128 px của 20 feet),
+lệch khỏi điểm vận hành 130 px theo hai hướng ngược nhau.
+
 `CODE_CONTEXT` **mặc định 3**, chọn làm mốc khởi đầu để bắt đầu gán nhãn: crop chỉ bằng
 36 % diện tích của 5. Số đo hiện có nghiêng về giá trị lớn hơn, và chỗ đáng lo là **kiểu
 hỏng**:

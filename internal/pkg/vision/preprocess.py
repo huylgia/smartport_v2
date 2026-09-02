@@ -154,13 +154,22 @@ def fit_long_side(height: int, width: int, long_side: int = DET_LONG_SIDE) -> tu
 
 
 CODE_CONTEXT = 3.0
+CODE_CONTEXT_BY_DIM = {"40feet": 3.0, "20feet": 5.0}
 """Cạnh vùng crop, tính theo **bội cạnh dài của chính mã container**.
 
 Người vẽ vùng chỉ cần khoanh 4 điểm của mã; phần nới ra suy từ đây. Đó là việc lặp lại
 được — khác hẳn việc vẽ một vùng rồi dò ``input_size`` cho nó.
 
-**3 là mốc khởi đầu, chọn để bắt đầu gán nhãn**, không phải giá trị đã tối ưu. Nó cho crop
-chỉ bằng **36 %** diện tích của 5, tức rẻ hơn nhiều — và số đo hiện có chưa đủ để bác bỏ nó.
+**Khác nhau theo kích thước container** (:data:`CODE_CONTEXT_BY_DIM`): 40 feet dùng 3,
+20 feet dùng 5. Mã 40 feet **to hơn trong khung** — đo trên cả ba camera có cả hai loại:
+1511 118→175 px, 1514 182→222 px, 1515 149→174 px, tức lớn hơn 1,17-1,48 lần. Vì vùng tính
+theo bội cạnh mã, cùng một ``k`` cho 40 feet một vùng lớn hơn theo tỉ lệ đó; hạ ``k`` kéo
+hai loại về gần cùng kích thước tuyệt đối.
+
+⚠️ Điều này **không** đổi tỉ lệ chữ mà detector thấy. Với ``k`` + :func:`fit_long_side`, chữ
+trong đầu vào luôn rộng ``640/k`` — độc lập với việc mã to hay nhỏ trong khung. Công thức
+đã tự chuẩn hoá khoảng cách camera. Nên hạ ``k`` cho 40 feet làm chữ **to lên** (213 px so
+với 128 px của 20 feet), lệch khỏi điểm vận hành 130 px theo hướng ngược nhau cho hai loại.
 
 ⚠️ Nhưng số đo hiện có **nghiêng về giá trị lớn hơn**, và chỗ đáng lo là kiểu hỏng:
 
@@ -214,7 +223,8 @@ def roi_from_code(
 
     Args:
         quad: 4 đỉnh ``(x, y)`` theo **pixel của khung**, thứ tự nào cũng được.
-        context: cạnh vùng bằng bao nhiêu lần cạnh dài của mã.
+        context: cạnh vùng bằng bao nhiêu lần cạnh dài của mã. Lấy theo kích thước
+            container từ :data:`CODE_CONTEXT_BY_DIM` khi nơi gọi biết nó.
 
     Vùng bị **cắt về trong khung**, nên mã nằm sát mép cho ra vùng lệch tâm — đúng như
     mong muốn: không có gì để lấy ngoài mép ảnh.
