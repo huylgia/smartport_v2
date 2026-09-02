@@ -14,10 +14,18 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+
+
+def _with_model(crane: Any) -> int:
+    """Số camera thật sự có model để gọi. Xem ``BLS_FOR_ROLE``."""
+    from ds_app.src.pipeline.model import roles_with_cameras
+
+    return sum(len(c) for c in roles_with_cameras(crane).values())
 
 
 def main() -> int:
@@ -60,7 +68,12 @@ def main() -> int:
             ("nvurisrcbin", "nguồn RTSP kèm tee trước decode"),
             ("nvv4l2decoder", "decode phần cứng — thiếu quyền `video` thì treo PREROLLING"),
             ("nvstreammux", "gộp nhiều nguồn thành batch, và là thứ TẠO RA metadata"),
-            ("nvinferserver", "gọi Triton (nhánh model, Phase 3b)"),
+            # ⚠️ KHÔNG kiểm `nvinferserver`: ds_app không dùng nó. Nhánh model gọi Triton
+            # thẳng qua gRPC từ `InferenceClient`, vì `nvinferserver` không dựng được
+            # `NvDsObjectMeta` từ đầu ra PicoDet (`DetectionParams.nms` là "reserved, not
+            # supported yet"). Kiểm một plugin không ai dùng sẽ khiến người debug đi tìm nó
+            # trong pipeline.
+            ("nvvideoconvert", "đổi sang RGBA — thiếu thì probe không map được khung ra numpy"),
             ("splitmuxsink", "ghi segment"),
         ):
             rows.append((Gst.ElementFactory.find(name) is not None, name, why))
@@ -78,7 +91,11 @@ def main() -> int:
                 True,
                 "config + URL camera",
                 f"{crane.crane_id}: {len(crane.record_cameras)} camera "
-                f"({by_role}), {len(crane.model_cameras)} chạy model",
+                # Hai con số khác nhau, và trộn chúng là nói dối: `model_cameras` là
+                # camera KHAI chạy model, còn `roles_with_cameras` là camera có model
+                # HÔM NAY. `ccode` khai 5 camera nhưng BLS của nó thuộc Phase 3b.
+                f"({by_role}), {len(crane.model_cameras)} khai chạy model, "
+                f"{_with_model(crane)} có model hôm nay",
             )
         )
         cameras = crane.record_cameras
