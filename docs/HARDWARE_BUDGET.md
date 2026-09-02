@@ -370,6 +370,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Nguồn giờ cho đồng hồ clip | tên đoạn **0 s** · birthtime **+2 s** · mtime **+32 s** | DN-015 |
 | 2026-09-02 | dev | Nội suy resize cho PicoDet | `CUBIC` vs `LINEAR`: recall **bằng nhau**, hộp lệch **tới 17,2 px** | §6.2 |
 | 2026-09-02 | dev | BLS `craneops_crane`/`craneops_tcode` | hộp khớp đường trực tiếp **40/40** · phân loại gộp batch khớp gọi lẻ **59/59** | §6.2 |
+| 2026-09-02 | dev | Gửi khung nguyên 12,26 MB qua gRPC | **0 khung trễ tới x8** tải mục tiêu · gãy ở x16 · GPU 9 % | §6.1 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -483,6 +484,43 @@ lần đầu ở phía client, warmup không chạm tới được. Về giá tr
 đưa tiền xử lý vào đồ thị model: Python từ 4,61 ms còn 1,50 ms.
 
 ---
+
+#### Gửi khung nguyên qua gRPC — nhánh crane/tcode (2026-09-02, máy dev)
+
+Hai model BLS nhận ảnh **thô** ``UINT8 [-1,-1,3]``, nên ds_app đẩy cả khung 2688x1520 =
+**12,26 MB** mỗi lần. `enable_cuda_buffer_sharing` không dùng được vì Triton chạy container
+riêng. Câu hỏi: phép chép này có phải nút thắt không.
+
+| Phép đo | p50 | payload |
+|---|---:|---:|
+| Khung nguyên, BLS tự resize | 18,47 ms | 12,26 MB |
+| Đã resize sẵn 416x416 | 1,83 ms | 0,52 MB |
+| Resize 2688x1520 -> 416x416 (cv2, tại chỗ) | 0,04 ms | — |
+
+Truyền chiếm **~16,6 ms**, tức 90 % thời gian; phép resize gần như miễn phí. Nhưng dưới tải
+đồng thời thật (crane 3,3 fps + 2 camera tcode 2,0 fps) thì con số một-luồng đó không đúng:
+
+| Nhịp | req/s | băng thông | p50 | p99 | khung trễ |
+|---:|---:|---:|---:|---:|---:|
+| **x1 (mục tiêu)** | 7,4 | 91 MB/s | 9,8-11,7 ms | 48-59 ms | **0** |
+| x4 | 29,4 | 360 MB/s | 9,6-9,9 ms | 14-17 ms | 0 |
+| x8 | 58,5 | 717 MB/s | 10,8-11,0 ms | 18-23 ms | 0 |
+| x16 | 117,0 | 1 433 MB/s | 11,3-13,6 ms | 17-19 ms | 9 / 1 057 |
+| x24 | 163,2 | 2 000 MB/s | 13,5-15,8 ms | 23-26 ms | **bão hoà** |
+
+**Kết luận: giữ nguyên thiết kế.** Ở tải mục tiêu, Triton dùng 0,63 nhân *ở x8* — tức ~0,08
+nhân ở x1 — và GPU chỉ 9 % ngay lúc x24. Biên gãy nằm ở **x16**, và nút thắt là CPU
+(serialize gRPC + 2 tiến trình BLS), không phải GPU. Máy đích i7-12700 có nhân chậm hơn
+Threadripper 9960X của máy dev cỡ 2 lần, nên vẫn còn khoảng **x8** dư địa.
+
+p99 ở x1 (48-59 ms) **cao hơn** ở x8 (18-23 ms): đó là hiệu ứng cache nguội giữa các khung
+thưa, không phải xếp hàng. Đừng đọc nó thành dấu hiệu quá tải.
+
+⚠️ **Đừng "tối ưu" bằng cách đẩy phép resize sang GPU.** `nvinferserver` có
+`frame_scaling_filter` = `NvBufSurfTransformInter_Algo1` (GPU-Cubic), nghe như tương đương
+`cv2.INTER_CUBIC` nhưng là bản cài đặt khác. §6.2 đo được rằng đổi phép nội suy dịch hộp
+**tới 17,2 px** trong khi recall không đổi — tức bảng số tổng sẽ không báo gì. Muốn đổi thì
+phải đo lại từng hộp trước.
 
 ### 6.2 Độ chính xác — đo 2026-08-30
 
