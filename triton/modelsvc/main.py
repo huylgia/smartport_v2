@@ -88,12 +88,23 @@ def _is_tmpfs(path: Path) -> bool:
 PLAN_NAME = "model.plan"
 MODEL_VERSION = "1"
 
-PYTHON_MODELS = ("craneops_ccode_h", "craneops_ccode_v")
-"""Model chạy Python backend (BLS): điều phối det → hậu xử lý → cắt/nắn → rec → CTC.
+PYTHON_MODELS = (
+    "craneops_ccode_h",
+    "craneops_ccode_v",
+    "craneops_crane",
+    "craneops_tcode",
+)
+"""Model chạy Python backend (BLS): mỗi cái điều phối trọn một nhánh nghiệp vụ.
 
-Không phải ``ensemble``. Bước giữa det và rec có **cổng nét ảnh loại bỏ bớt crop**, nên
-số tensor ra khác số tensor vào — đồ thị tĩnh của ensemble không diễn đạt được. Xem
-``docs/DESIGN_NOTES.md`` DN-007."""
+Không phải ``ensemble``, và cùng một lý do cho cả bốn: **số tensor ra khác số tensor vào**
+nên đồ thị tĩnh không diễn đạt được. Hai model ccode có cổng nét loại bớt crop (DN-007);
+hai model pico trả số hộp thay đổi theo từng khung.
+
+``craneops_crane``/``craneops_tcode`` còn một lý do riêng: chúng thay cho pattern
+PGIE→SGIE của DeepStream, vốn cần ``nvinferserver`` tự parse được đầu ra PicoDet để dựng
+``NvDsObjectMeta``. Nó không parse được (``DetectionParams.nms`` là *"reserved, not
+supported yet"*), và đường vòng duy nhất — parser C++ — sẽ là bản thứ hai của NMS đã port
+ở ``internal/pkg/vision/nms.py``."""
 
 TRTEXEC_FALLBACKS = (
     "/usr/src/tensorrt/bin/trtexec",

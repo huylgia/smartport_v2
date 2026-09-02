@@ -1,0 +1,59 @@
+# Nhánh crane: phát hiện đầu kéo + container.
+# Python backend kiểu BLS, KHÔNG phải ensemble: số hộp ra thay đổi theo từng khung
+# nên đồ thị tĩnh không diễn đạt được. Cùng lý do như hai model ccode.
+#
+# SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.
+
+name: "craneops_crane"
+backend: "python"
+
+# 0 = không gom batch ở tầng này: mỗi camera một độ phân giải nên khung không xếp
+# chồng được. Việc gom batch xảy ra ở tầng dưới, nơi mọi tensor đã cùng 416x416.
+max_batch_size: 0
+
+input [
+  {
+    name: "image"
+    data_type: TYPE_UINT8
+    dims: [ -1, -1, 3 ]
+  }
+]
+
+output [
+  {
+    name: "labels"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  },
+  {
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "boxes"
+    data_type: TYPE_INT32
+    dims: [ -1, 4 ]
+  }
+]
+
+parameters {
+  key: "det_model"
+  value: { string_value: "craneops_truckitems_pico" }
+}
+parameters {
+  key: "labels"
+  value: { string_value: "{\"0\": \"head\", \"1\": \"container\"}" }
+}
+
+# 2 tiến trình Python thật — NMS bị GIL chặn. Ít hơn ccode (3)
+# vì ở đây không có unclip pyclipper: chỉ NMS trên 3 598 hộp, và cả nhánh chỉ
+# ~7,3 khung/s. Xem HARDWARE_BUDGET §2.2.
+instance_group [
+  {
+    count: 2
+    kind: KIND_CPU
+  }
+]
+
+version_policy: { specific: { versions: [ 1 ] } }

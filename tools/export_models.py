@@ -26,6 +26,7 @@ Model phân loại số đầu kéo **không** đi qua đường này — xem :d
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -231,6 +232,47 @@ BLS_SPECS: tuple[BlsSpec, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class PicoBlsSpec:
+    """Một model Python backend gói trọn nhánh dùng PicoDet.
+
+    Vì sao gói vào BLS thay vì dùng PGIE→SGIE của DeepStream: ``nvinferserver`` chỉ dựng
+    được ``NvDsObjectMeta`` (thứ SGIE cần để biết cắt ở đâu) khi nó tự parse được đầu ra
+    detector, mà PicoDet trả tensor thô và ``DetectionParams.nms`` trong
+    ``nvdsinferserver_common.proto`` ghi *"reserved, not supported yet"*. Đường còn lại là
+    parser C++ — tức bản thứ hai của NMS đã port ở ``internal/pkg/vision/nms.py``, kể cả
+    cái ``+1`` cố ý trong công thức IoU. Một bản là đủ.
+    """
+
+    name: str
+    det_model: str
+    labels: dict[int, str]
+    cls_model: str | None = None
+    """Có thì BLS cắt từng hộp rồi phân loại luôn, trả thêm ``codes``/``code_scores``."""
+
+    cls_output: str = "head"
+    instance_count: int = 2
+    """Thấp hơn ccode (3): nhánh này chỉ chạy NMS trên 3 598 hộp, không có unclip
+    pyclipper. Ba camera cộng lại ~7,3 khung/s — xem HARDWARE_BUDGET §2.2."""
+
+
+PICO_BLS_SPECS: tuple[PicoBlsSpec, ...] = (
+    PicoBlsSpec(
+        name="craneops_crane",
+        det_model="craneops_truckitems_pico",
+        # localize_container_truck.py:46
+        labels={0: "head", 1: "container"},
+    ),
+    PicoBlsSpec(
+        name="craneops_tcode",
+        det_model="craneops_truckhead_pico",
+        # localize_head_truck.py:31 — model trả 2 lớp nhưng chỉ lớp 0 có nghĩa.
+        labels={0: "head"},
+        cls_model="craneops_headcode_cls",
+    ),
+)
+
+
 HEADCODE_CLS = ModelSpec(
     name="craneops_headcode_cls",
     # ⚠️ KHÔNG phải truckHeadCls_150125.t7. File đó chưa reparameterize và có 3314 node
@@ -410,6 +452,98 @@ from triton.bls.ccode import CCodeModel as TritonPythonModel  # noqa: E402, F401
 '''
 
 
+PICO_BLS_MODEL_PY = '''"""Điểm vào Python backend cho nhánh {nhanh}.
+
+SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.
+
+Triton bắt buộc lớp phải tên ``TritonPythonModel`` và nằm trong ``model.py``. Toàn bộ nội
+dung ở ``triton/bls/pico.py``; file này chỉ đặt bí danh.
+"""
+
+import os
+import sys
+
+_APP_ROOT = os.environ.get("CRANEOPS_APP_ROOT", "/app")
+if _APP_ROOT not in sys.path:
+    sys.path.insert(0, _APP_ROOT)
+
+from triton.bls.pico import {lop} as TritonPythonModel  # noqa: E402, F401
+'''
+
+
+def render_pico_bls_config(spec: PicoBlsSpec) -> str:
+    """Sinh ``config.pbtxt`` cho một model BLS chạy PicoDet."""
+    outputs = [
+        ("labels", "TYPE_STRING", "-1"),
+        ("scores", "TYPE_FP32", "-1"),
+        ("boxes", "TYPE_INT32", "-1, 4"),
+    ]
+    if spec.cls_model:
+        outputs += [("codes", "TYPE_INT32", "-1"), ("code_scores", "TYPE_FP32", "-1")]
+
+    what = "đầu kéo + container" if len(spec.labels) > 1 else "đầu kéo"
+    lines = [
+        f"# Nhánh {spec.name.removeprefix('craneops_')}: phát hiện {what}"
+        + (" rồi đọc số xe." if spec.cls_model else "."),
+        "# Python backend kiểu BLS, KHÔNG phải ensemble: số hộp ra thay đổi theo từng khung",
+        "# nên đồ thị tĩnh không diễn đạt được. Cùng lý do như hai model ccode.",
+        "#",
+        "# SINH TỰ ĐỘNG bởi tools/export_models.py — đừng sửa tay.",
+        "",
+        f'name: "{spec.name}"',
+        'backend: "python"',
+        "",
+        "# 0 = không gom batch ở tầng này: mỗi camera một độ phân giải nên khung không xếp",
+        "# chồng được. Việc gom batch xảy ra ở tầng dưới, nơi mọi tensor đã cùng 416x416.",
+        "max_batch_size: 0",
+        "",
+        "input [",
+        "  {",
+        '    name: "image"',
+        "    data_type: TYPE_UINT8",
+        "    dims: [ -1, -1, 3 ]",
+        "  }",
+        "]",
+        "",
+        "output [",
+    ]
+    for i, (name, dtype, dims) in enumerate(outputs):
+        lines += ["  {", f'    name: "{name}"', f"    data_type: {dtype}", f"    dims: [ {dims} ]"]
+        lines.append("  }," if i < len(outputs) - 1 else "  }")
+    lines += ["]", ""]
+
+    params: list[tuple[str, str]] = [
+        ("det_model", spec.det_model),
+        ("labels", json.dumps(spec.labels)),
+    ]
+    if spec.cls_model:
+        params += [("cls_model", spec.cls_model), ("cls_output", spec.cls_output)]
+    for key, value in params:
+        escaped = value.replace('"', '\\"')
+        lines += [
+            "parameters {",
+            f'  key: "{key}"',
+            f'  value: {{ string_value: "{escaped}" }}',
+            "}",
+        ]
+
+    lines += [
+        "",
+        f"# {spec.instance_count} tiến trình Python thật — NMS bị GIL chặn. Ít hơn ccode (3)",
+        "# vì ở đây không có unclip pyclipper: chỉ NMS trên 3 598 hộp, và cả nhánh chỉ",
+        "# ~7,3 khung/s. Xem HARDWARE_BUDGET §2.2.",
+        "instance_group [",
+        "  {",
+        f"    count: {spec.instance_count}",
+        "    kind: KIND_CPU",
+        "  }",
+        "]",
+        "",
+        "version_policy: { specific: { versions: [ 1 ] } }",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def render_bls_config(spec: BlsSpec) -> str:
     """Sinh ``config.pbtxt`` cho một model BLS."""
     huong = "DỌC" if spec.vertical else "NGANG"
@@ -516,6 +650,26 @@ def emit_configs(*, check: bool) -> int:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(want, encoding="utf-8")
                 print(f"  ✅ {bls.name}/{dest.name}")
+
+    for pico in PICO_BLS_SPECS:
+        nhanh = pico.name.removeprefix("craneops_")
+        lop = "TCodeModel" if pico.cls_model else "CraneModel"
+        for dest, want in (
+            (TRITON_REPO / pico.name / "config.pbtxt", render_pico_bls_config(pico)),
+            (
+                TRITON_REPO / pico.name / "1" / "model.py",
+                PICO_BLS_MODEL_PY.format(nhanh=nhanh, lop=lop),
+            ),
+        ):
+            have = dest.read_text(encoding="utf-8") if dest.exists() else None
+            if have == want:
+                continue
+            if check:
+                stale.append(f"{pico.name}/{dest.name}")
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(want, encoding="utf-8")
+                print(f"  ✅ {pico.name}/{dest.name}")
 
     if check and stale:
         print(

@@ -369,6 +369,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-01 | dev | Đoạn 30 s có ra đúng 30 s? | **30,00 s** (18 GOP chẵn) | `record --segment-sec 30` |
 | 2026-09-01 | dev | Nguồn giờ cho đồng hồ clip | tên đoạn **0 s** · birthtime **+2 s** · mtime **+32 s** | DN-015 |
 | 2026-09-02 | dev | Nội suy resize cho PicoDet | `CUBIC` vs `LINEAR`: recall **bằng nhau**, hộp lệch **tới 17,2 px** | §6.2 |
+| 2026-09-02 | dev | BLS `craneops_crane`/`craneops_tcode` | hộp khớp đường trực tiếp **40/40** · phân loại gộp batch khớp gọi lẻ **59/59** | §6.2 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
