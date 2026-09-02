@@ -92,8 +92,15 @@ def synced_text(path: Path) -> str:
         raise SystemExit(f"❌ {path}: thiếu `crane_id`")
 
     out: list[str] = []
+    # ⚠️ Chỉ sửa các dòng NẰM TRONG mục `cameras:`. File còn mục `ocr_rois:` mà mỗi vùng
+    # cũng là một dòng `- {...}` — cùng hình dạng, khác hẳn ý nghĩa. Quét cả file thì công
+    # cụ coi mỗi vùng là một camera thiếu `stream` và từ chối chạy.
+    in_cameras = False
     for line in text.splitlines(keepends=True):
-        m = _ENTRY.match(line.rstrip("\n"))
+        stripped = line.rstrip("\n")
+        if stripped and not stripped[0].isspace():
+            in_cameras = stripped.startswith("cameras:")
+        m = _ENTRY.match(stripped) if in_cameras else None
         if not m:
             out.append(line)
             continue

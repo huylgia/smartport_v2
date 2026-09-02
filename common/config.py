@@ -375,6 +375,42 @@ class CraneConfig(BaseModel):
                         # camera khác 30 — một giá trị chung không diễn đạt nổi điều đó, và
                         # hệ quả là `drop_frame_interval` sai 40 % cho camera đó.
                         cam.setdefault("source_fps", data.get("source_fps", 30.0))
+
+        # Vùng OCR khai ở mục RIÊNG, khoá theo mã camera — không nhét vào dòng camera.
+        #
+        # Lý do là hình thức, và nó có giá trị thật: một camera = MỘT dòng, đếm được bằng
+        # mắt, và một diff đổi camera nào thì thấy ngay camera đó. Nhét 8 vùng vào trong
+        # cặp ngoặc của dòng đó sẽ cho ra một dòng dài vài trăm ký tự; tách camera thành
+        # khối nhiều dòng thì mất luôn tính chất kia. Mục riêng giữ được cả hai: mỗi camera
+        # một dòng, mỗi vùng một dòng.
+        #
+        # Cùng khuôn với config rule (`configs/rules/<cẩu>/<rule>/config.json`), vốn cũng
+        # khoá theo mã camera — nên chỗ nào cần tra theo camera thì tra cùng một kiểu.
+        # `pop`, không phải `get`: `CraneConfig` là `extra="forbid"`, nên khoá này
+        # phải BIẾN MẤT sau khi đã bơm xuống camera.
+        rois = data.pop("ocr_rois", None) or {}
+        if rois:
+            known = {
+                cam["code"]
+                for group in data["cameras"].values()
+                if isinstance(group, list)
+                for cam in group
+                if isinstance(cam, dict) and "code" in cam
+            }
+            unknown = set(rois) - known
+            if unknown:
+                # Gõ sai mã camera ở đây sẽ làm vùng biến mất không dấu vết, và camera đó
+                # chạy OCR trên không có vùng nào.
+                raise ValueError(
+                    f"ocr_rois khai cho camera không tồn tại: {sorted(unknown)}; "
+                    f"mã hợp lệ: {sorted(known)}"
+                )
+            for group in data["cameras"].values():
+                if not isinstance(group, list):
+                    continue
+                for cam in group:
+                    if isinstance(cam, dict) and cam.get("code") in rois:
+                        cam["ocr_rois"] = rois[cam["code"]]
         return data
 
     @model_validator(mode="after")

@@ -772,6 +772,22 @@ craneops-triton accuracy
 ⚠️ **Đo tiến trình nào.** PID 1 trong container DeepStream là `entrypoint.sh`, không phải
 ds_app: đo nhầm nó cho ra 3 MB RSS và 1 thread — cực kỳ "phẳng", và hoàn toàn vô nghĩa.
 
+#### Vùng OCR chuyển từ v1 (2026-09-02)
+
+20 vùng / 5 camera ccode, chuyển bằng `tools/convert_ocr_rois.py`.
+
+⚠️ **Toạ độ v1 là pixel tuyệt đối trong không gian ĐỘ PHÂN GIẢI KHAI, không phải nguồn.**
+v1 co giãn mọi khung trước khi xử lý (`videoscale ! video/x-raw,width=…,height=…`), và
+camera 1508 khai `720p` trong khi nguồn thật là 2688x1520. Kiểm bằng mắt trên khung thật:
+chia theo 720p thì vùng phủ đúng chồng container; chia theo 2688x1520 thì **toàn bộ vùng
+rơi lên bầu trời đêm và dầm cẩu**, không một container nào — mà OCR vẫn chạy và vẫn trả
+chuỗi rỗng.
+
+v2 lưu toạ độ **tương đối [0..1]** nên vùng không còn phụ thuộc độ phân giải nào.
+
+`ocr_threshold` không chuyển sang: cả 20 vùng dùng chung 0,95, nên nó là tham số của rule
+`CCODE01` chứ không phải thuộc tính của vùng.
+
 #### Ba camera không chạy 30 fps (2026-09-02)
 
 Phiên trên lộ ra camera `..._1517` chỉ đạt **63 %** nhịp đặt trong khi hai camera kia đạt
