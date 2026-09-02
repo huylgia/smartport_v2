@@ -37,6 +37,7 @@ from common.config import load_crane  # noqa: E402
 from common.message import Detection, PerceptionMessage, perception_topic  # noqa: E402
 from ds_app.src.pipeline.inference import FrameJob, InferenceClient  # noqa: E402
 from ds_app.src.pipeline.model import ModelBranch, roles_with_cameras  # noqa: E402
+from ds_app.src.pipeline.ratecheck import RateCheck  # noqa: E402
 from ds_app.src.pipeline.recorder import RecordingBranch  # noqa: E402
 from ds_app.src.pipeline.sources import build_sources  # noqa: E402
 from ds_app.src.pipeline.sweeper import SweepPolicy, schedule  # noqa: E402
@@ -128,9 +129,17 @@ def main() -> int:
         fragment, _confident = fragments.resolve(camera_code, frame_ts)
         return fragment.path if fragment else None
 
+    rates = RateCheck()
+
     branches = {
         role: ModelBranch(
-            role, cams, crane, submit=client.submit, time_sync=sync, segment_hint=segment_hint
+            role,
+            cams,
+            crane,
+            submit=client.submit,
+            time_sync=sync,
+            rate_check=rates,
+            segment_hint=segment_hint,
         )
         for role, cams in by_role.items()
     }
@@ -170,7 +179,7 @@ def main() -> int:
             bus.flush()
             bus.close()
 
-    return _report(time.time() - started, crane, client, bus, sync, recorder, seen, errors)
+    return _report(time.time() - started, crane, client, bus, sync, recorder, seen, errors, rates)
 
 
 def _tick(started: float, client: Any, bus: Any, seen: dict[str, int]) -> bool:
@@ -197,6 +206,7 @@ def _report(
     recorder: RecordingBranch,
     seen: dict[str, int],
     errors: list[str],
+    rates: RateCheck,
 ) -> int:
     s = client.stats.snapshot()
     print(  # noqa: T201
@@ -217,6 +227,11 @@ def _report(
             + ", ".join(f"{c} x{n}" for c, n in sorted(sync.resets.items()))
         )
     print(f"  ghi hình: {recorder.loss.report()}")  # noqa: T201
+    for code, r in rates.report():
+        if r.measured is None:
+            continue
+        flag = "  ⚠️ KHAI SAI" if r.mismatched else ""
+        print(f"  fps nguồn {code}: đo {r.measured:5.2f}  khai {r.declared:g}{flag}")  # noqa: T201
 
     from ds_app.src.pipeline.inference import BLS_FOR_ROLE
 

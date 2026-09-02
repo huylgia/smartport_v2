@@ -308,9 +308,16 @@ class CraneConfig(BaseModel):
     source_fps: float = Field(default=30.0, gt=0.0)
     """fps của **nguồn**, đo được — dùng để quy ``model_fps`` ra ``drop-frame-interval``.
 
-    Không dò được lúc dựng pipeline: ``drop-frame-interval`` chỉ đặt được ở trạng thái
-    NULL/READY, tức trước khi thương lượng caps. Nên phải khai, và ds_app **đối chiếu lại**
-    khi caps về — lệch thì báo, không để nhịp thật âm thầm khác nhịp đã tính.
+**Vì sao phải khai thay vì tự dò** — hai lý do độc lập, cả hai đã kiểm chứng:
+
+    * ``nvv4l2decoder.drop-frame-interval`` khai ``changeable only in NULL or READY
+      state`` (đọc thẳng từ ``gst-inspect``), nên nhịp phải quyết TRƯỚC khi khung đầu tiên
+      về — không thể chờ rồi mới tính.
+    * Caps của nguồn khai ``framerate=0/1`` trên **cả 10 camera GC03** (đo 2026-09-02), tức
+      "biến thiên, tự đo lấy". Không có gì để đọc.
+
+    ds_app **đo lại lúc chạy** và báo nếu lệch — xem ``ds_app/src/pipeline/ratecheck.py``.
+    Đó là hậu kiểm, không phải tự dò: nhịp model vẫn tính theo con số khai ở đây.
 
     Đây là **mặc định cho mọi camera**; camera nào chạy nhịp khác thì khai ``source_fps``
     ngay trong dòng của nó.

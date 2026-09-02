@@ -15,7 +15,7 @@ nhưng **không** nối vào muxer — nên nhánh decode của nó không bao g
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from common.config import CameraConfig, CraneConfig
@@ -29,7 +29,13 @@ from ds_app.src.pipeline.elements import (
     make,
 )
 
-__all__ = ["build_sources", "make_source_bin", "replace_source", "source_queue_name"]
+__all__ = [
+    "build_sources",
+    "declared_framerate",
+    "make_source_bin",
+    "replace_source",
+    "source_queue_name",
+]
 
 
 def source_bin_name(index: int) -> str:
@@ -55,6 +61,7 @@ def build_sources(
     *,
     recorder: Any | None = None,
     watchdog: Any | None = None,
+    on_caps: Callable[[CameraConfig, float | None, str], None] | None = None,
 ) -> dict[CameraRole, dict[int, CameraConfig]]:
     """Dựng nguồn cho **mọi** camera, một lần duy nhất cho cả hai nhánh.
 
@@ -79,7 +86,7 @@ def build_sources(
     # `record_cameras`, KHÔNG phải `crane.cameras`: cái sau là một ánh xạ, và duyệt nó
     # cho ra KHOÁ chứ không phải camera — im lặng, tới tận lúc chạm thuộc tính đầu tiên.
     for index, camera in enumerate(crane.record_cameras):
-        bin_ = make_source_bin(Gst, index, camera)
+        bin_ = make_source_bin(Gst, index, camera, on_caps=on_caps)
         pipeline.add(bin_)
 
         if recorder is not None:
@@ -126,7 +133,25 @@ def build_sources(
     return attached
 
 
-def make_source_bin(Gst: Any, index: int, camera: CameraConfig, uri: str | None = None) -> Any:
+def declared_framerate(struct: Any) -> float | None:
+    """fps mà caps khai, hoặc ``None`` nếu nguồn không nói.
+
+    Nguồn RTSP live thường khai ``framerate=0/1`` — nghĩa là "biến thiên, tự đo lấy". Trả
+    ``None`` cho cả trường hợp đó: một số 0 dùng làm fps sẽ chia cho 0 ở đâu đó.
+    """
+    ok, num, den = struct.get_fraction("framerate")
+    if not ok or den == 0 or num == 0:
+        return None
+    return float(num) / float(den)
+
+
+def make_source_bin(
+    Gst: Any,
+    index: int,
+    camera: CameraConfig,
+    uri: str | None = None,
+    on_caps: Callable[[CameraConfig, float | None, str], None] | None = None,
+) -> Any:
     """Một ``nvurisrcbin`` bọc trong bin có đúng một ghost src pad.
 
     Args:
@@ -162,6 +187,14 @@ def make_source_bin(Gst: Any, index: int, camera: CameraConfig, uri: str | None 
         struct = caps.get_structure(0)
         if struct is None or "video" not in struct.get_name():
             return
+
+        if on_caps is not None:
+            # ⚠️ Đây là chỗ DUY NHẤT biết nhịp thật của nguồn, và nó tới MUỘN hơn lúc phải
+            # quyết `drop-frame-interval`: element khai `changeable only in NULL or READY
+            # state`, tức trước khi thương lượng caps. Nên fps vẫn phải khai trong config;
+            # cái làm được ở đây là **đối chiếu và báo**, để một camera chạy khác nhịp
+            # không im lặng cho ra nhịp model sai.
+            on_caps(camera, declared_framerate(struct), struct.to_string())
 
         features = caps.get_features(0)
         if features is not None and features.contains("memory:NVMM"):

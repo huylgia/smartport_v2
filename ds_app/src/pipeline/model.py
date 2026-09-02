@@ -31,6 +31,7 @@ from common.config import CameraConfig, CraneConfig
 from common.enum import CameraRole
 from ds_app.src.pipeline.elements import NVVIDEOCONVERT, STREAMMUX, apply_props, link, make
 from ds_app.src.pipeline.inference import FrameJob
+from ds_app.src.pipeline.ratecheck import RateCheck
 from ds_app.src.pipeline.timesync import TimeSync
 
 if TYPE_CHECKING:
@@ -78,6 +79,7 @@ class ModelBranch:
         *,
         submit: Callable[[FrameJob], bool],
         time_sync: TimeSync,
+        rate_check: RateCheck | None = None,
         segment_hint: Callable[[str, float], str | None] | None = None,
     ) -> None:
         self.role = role
@@ -87,6 +89,7 @@ class ModelBranch:
         # DÙNG CHUNG với nhánh ghi. Hai nhánh neo thời gian riêng thì chúng trôi khỏi nhau
         # và cửa sổ cắt clip lệch dần — không có gì báo. Xem timesync.py.
         self._sync = time_sync
+        self._rates = rate_check
         self._segment_hint = segment_hint
         self.muxer: Any = None
         self._pad_of_camera: dict[int, CameraConfig] = {}
@@ -180,6 +183,23 @@ class ModelBranch:
         # `frame_num` đếm khung ĐÃ QUA decimate; khôi phục trước khi dùng làm chỉ số, nếu
         # không nó co lại đúng theo tỉ lệ decimate và không khớp với chỉ số của nhánh ghi.
         frame_id = restore_frame_id(frame.frame_num, camera.drop_frame_interval)
+
+        if self._rates is not None:
+            # Caps không khai nhịp (`framerate=0/1` trên cả 10 camera), nên đây là chỗ duy
+            # nhất biết được `source_fps` trong config có đúng không.
+            odd = self._rates.observe(
+                camera.code,
+                frame_id,
+                frame_ts,
+                declared_fps=camera.source_fps,
+                drop_frame_interval=camera.drop_frame_interval,
+            )
+            if odd is not None and odd.measured is not None:
+                print(  # noqa: T201
+                    f"  ⚠️ {camera.code}: config khai source_fps={odd.declared:g} nhưng đo "
+                    f"được {odd.measured:.1f} — drop_frame_interval đang tính sai",
+                    flush=True,
+                )
 
         # `get_nvds_buf_surface` trả một VIEW vào buffer GStreamer — nó chỉ sống tới khi
         # probe trả về. Phải CHÉP, và chép trước khi bỏ kênh alpha: cắt view rồi mới chép

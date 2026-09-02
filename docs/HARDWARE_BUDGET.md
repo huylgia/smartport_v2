@@ -787,6 +787,15 @@ nào. Nguồn thật mới là chỗ khác:
 Đoạn ghi là passthrough nên nó chứa **đúng bitstream đã tới** — đây là phép đo độc lập với
 trục thời gian, và nó loại trừ khả năng lỗi ở phía ds_app.
 
+**Vì sao không tự dò fps** — hai lý do độc lập, đã kiểm chứng:
+
+* `nvv4l2decoder.drop-frame-interval` khai `changeable only in NULL or READY state` (đọc
+  thẳng từ `gst-inspect`), nên nhịp phải quyết trước khi khung đầu tiên về.
+* Caps của nguồn khai `framerate=0/1` trên **cả 10 camera** — "biến thiên, tự đo lấy".
+  Không có gì để đọc.
+
+Codec thì ngược lại: **tự dò hoàn toàn**, `nvurisrcbin` đọc SDP rồi chọn depay/decoder.
+
 `source_fps` vốn là một giá trị chung cả cẩu, nên nó không diễn đạt nổi điều này. Hệ quả
 không chỉ là một con số xấu: `drop_frame_interval` suy từ nó (30/3,3 → 9 thay vì 18/3,3 →
 5), nên camera chạy **2,11 fps thay vì 3,33**, và `PerceptionMessage.fps` **báo 30 ra ngoài
