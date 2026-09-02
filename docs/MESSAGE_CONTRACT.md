@@ -45,6 +45,13 @@ khi đó tách ngược từ `camera_code` là đoán.
   cùng một lane phải tuần tự. Signal từ nhiều camera khác nhau vẫn về cùng partition.
 - `manifest` **compacted**: chỉ cần bản mới nhất. Thay `ContainerCodeCamera.DATABASE`
   — thay cho biến toàn cục dùng chung giữa các camera, vốn chỉ có tác dụng trong một process.
+- `evidence` mang **thời điểm tuyệt đối** (`from_ts`/`to_ts`), không phải độ lệch so với
+  mốc neo. Nhờ vậy **một job tự đủ**: đưa nó cho worker không phải kèm `anchor_ts`, và
+  người đọc message không phải cộng trừ. Quy đổi từ cửa sổ trong `configs/operations/*.yaml`
+  là việc của orchestrator — làm một lần ở chỗ nó đọc config.
+- `anchor_ts` phục vụ việc khác: job `image` **chụp tại đúng khoảnh khắc đó** (nên nó không
+  có khoảng), còn với `clip`/`mosaic` thì nó là chỗ overlay đánh dấu sự kiện trong clip, và
+  là gốc để đo `delay`.
 - `evidence` tách **fast/slow**: ảnh chụp gần như tức thì; clip phải chờ `delay: 20–40 s`
   sau thao tác cẩu. Trộn chung sẽ để job nhanh kẹt sau job chậm. Mượn từ
   hai lane nhanh/chậm.
@@ -213,22 +220,26 @@ vốn chỉ có tác dụng trong một process.
   "delay": 20.0,
   "jobs": [
     {
+      "kind": "image",
+      "camera_code": "GC03_113_160_225_15_1508",
+      "from_ts": null,
+      "to_ts": null,
+      "grid": null,
+      "count": 1
+    },
+    {
       "kind": "clip",
       "camera_code": "GC03_113_160_225_15_1508",
-      "window": [
-        -20.0,
-        15.0
-      ],
+      "from_ts": 1756312817.4,
+      "to_ts": 1756312852.4,
       "grid": null,
       "count": 1
     },
     {
       "kind": "mosaic",
       "camera_code": "GC03_113_160_225_15_1516",
-      "window": [
-        -35.0,
-        10.0
-      ],
+      "from_ts": 1756312802.4,
+      "to_ts": 1756312847.4,
       "grid": [
         2,
         2

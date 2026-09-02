@@ -285,39 +285,6 @@ def test_non_empty_manifest() -> None:
 # ---------------------------------------------------------------- Evidence
 
 
-def test_evidence_job_windows_match_v1_offsets() -> None:
-    normal = EvidenceJob(
-        kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1508", window=(-20.0, 15.0)
-    )
-    bottom = EvidenceJob(
-        kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
-    )
-    assert normal.window == (-20.0, 15.0)
-    assert bottom.window == (-35.0, 10.0)
-
-
-def test_evidence_job_rejects_inverted_window() -> None:
-    with pytest.raises(ValidationError, match="cửa sổ lật ngược"):
-        EvidenceJob(
-            kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1508", window=(15.0, -20.0)
-        )
-
-
-def test_mosaic_requires_grid() -> None:
-    with pytest.raises(ValidationError, match="mosaic phải có grid"):
-        EvidenceJob(
-            kind=EvidenceKind.MOSAIC, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
-        )
-    ok = EvidenceJob(
-        kind=EvidenceKind.MOSAIC,
-        camera_code="GC03_113_160_225_15_1516",
-        window=(-35.0, 10.0),
-        grid=(2, 2),
-        count=3,
-    )
-    assert ok.grid == (2, 2)
-
-
 def test_evidence_message_requires_at_least_one_job() -> None:
     with pytest.raises(ValidationError):
         EvidenceJobMessage(event_id="e1", crane_id="GC03", lane=Lane.ONE, anchor_ts=TS, jobs=[])
@@ -333,7 +300,10 @@ def test_evidence_slow_lane_carries_delay() -> None:
         delay=40.0,
         jobs=[
             EvidenceJob(
-                kind=EvidenceKind.CLIP, camera_code="GC03_113_160_225_15_1516", window=(-35.0, 10.0)
+                kind=EvidenceKind.CLIP,
+                camera_code="GC03_113_160_225_15_1516",
+                from_ts=TS - 35.0,
+                to_ts=TS + 10.0,
             )
         ],
     )
@@ -436,3 +406,86 @@ def test_messages_are_frozen() -> None:
     msg = _perception()
     with pytest.raises(ValidationError):
         msg.camera_code = "KHAC"
+
+
+# ---------------------------------------------------------------- cửa sổ bằng chứng
+
+
+def test_a_clip_job_is_self_contained() -> None:
+    """Khoảng là **tuyệt đối**, nên đưa một job cho worker không phải kèm mốc neo.
+
+    Bản trước mang độ lệch so với ``anchor_ts``: mỗi consumer phải tự cộng, và mỗi phép
+    cộng là một chỗ có thể nhầm dấu — nhầm dấu cho ra một clip trông bình thường, chỉ lệch
+    chỗ. Quy đổi giờ làm MỘT lần, ở orchestrator, nơi nó đọc config.
+    """
+    job = EvidenceJob(
+        kind=EvidenceKind.CLIP,
+        camera_code="GC03_1_2_3_4_1508",
+        from_ts=1788283524.0,
+        to_ts=1788283559.0,
+    )
+    assert job.span == (1788283524.0, 1788283559.0)
+
+
+def test_an_image_job_has_no_span_because_it_uses_the_anchor() -> None:
+    """``image`` chụp MỘT khoảnh khắc, và khoảnh khắc đó là ``anchor_ts`` của message."""
+    job = EvidenceJob(kind=EvidenceKind.IMAGE, camera_code="GC03_1_2_3_4_1508")
+    assert job.from_ts is None and job.to_ts is None
+    with pytest.raises(ValueError, match="dùng anchor_ts"):
+        _ = job.span
+
+
+def test_an_image_job_with_a_span_is_rejected() -> None:
+    """Một khoảng ở đây nghĩa là ai đó tưởng nó cắt video, và sẽ ngạc nhiên khi nhận ảnh."""
+    with pytest.raises(ValueError, match="không nhận khoảng"):
+        EvidenceJob(
+            kind=EvidenceKind.IMAGE,
+            camera_code="GC03_1_2_3_4_1508",
+            from_ts=1.0,
+            to_ts=2.0,
+        )
+
+
+def test_a_clip_job_without_a_span_is_rejected() -> None:
+    with pytest.raises(ValueError, match="phải có from_ts và to_ts"):
+        EvidenceJob(kind=EvidenceKind.CLIP, camera_code="GC03_1_2_3_4_1508")
+
+
+def test_an_inverted_span_is_rejected() -> None:
+    """Bắt lúc dựng message, không phải lúc cắt clip."""
+    with pytest.raises(ValueError, match="lật ngược hoặc rỗng"):
+        EvidenceJob(
+            kind=EvidenceKind.CLIP,
+            camera_code="GC03_1_2_3_4_1508",
+            from_ts=1788283559.0,
+            to_ts=1788283524.0,
+        )
+
+
+def test_jobs_in_one_message_may_span_different_ranges() -> None:
+    """Một sự kiện, nhiều camera, cửa sổ khác nhau — camera đáy lùi xa hơn nhiều."""
+    anchor = 1788283544.0
+    ccode = EvidenceJob(
+        kind=EvidenceKind.CLIP,
+        camera_code="GC03_1_2_3_4_1508",
+        from_ts=anchor - 20,
+        to_ts=anchor + 15,
+    )
+    bottom = EvidenceJob(
+        kind=EvidenceKind.CLIP,
+        camera_code="GC03_1_2_3_4_1516",
+        from_ts=anchor - 35,
+        to_ts=anchor + 10,
+    )
+    assert ccode.span == (anchor - 20, anchor + 15)
+    assert bottom.span == (anchor - 35, anchor + 10)
+
+
+def test_mosaic_still_requires_a_grid() -> None:
+    with pytest.raises(ValueError, match="mosaic phải có grid"):
+        EvidenceJob(
+            kind=EvidenceKind.MOSAIC,
+            camera_code="GC03_1_2_3_4_1516",
+            from_ts=1.0,
+            to_ts=2.0,
+        )

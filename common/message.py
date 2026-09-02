@@ -350,8 +350,16 @@ class EvidenceJob(BaseModel):
     camera mà không có gì báo. Cùng một chuỗi được dùng làm tên thư mục ghi hình, nên
     ``segment_hint`` và trường này luôn khớp nhau."""
 
-    window: tuple[float, float]
-    """Offset ``(trước, sau)`` tính bằng giây so với ``anchor_ts``. Offset trước thường âm.
+    from_ts: Timestamp | None = None
+    to_ts: Timestamp | None = None
+    """Khoảng video cần cắt, **thời điểm tuyệt đối** (epoch giây). Chỉ ``clip`` và
+    ``mosaic`` có; ``image`` thì không — nó chụp đúng một khoảnh khắc, và khoảnh khắc đó là
+    :attr:`EvidenceJobMessage.anchor_ts`.
+
+    Tuyệt đối chứ không phải độ lệch so với mốc neo, vì như vậy **một job tự đủ**: đưa nó
+    cho worker không phải kèm theo mốc neo, và người đọc message không phải cộng trừ. Quy
+    đổi từ cửa sổ trong ``configs/operations/*.yaml`` là việc của orchestrator, làm một lần
+    ở chỗ nó đọc config.
 
     Nằm trong message chứ không phải hằng số trong ``evidenced``: mỗi camera một cửa sổ
     khác nhau (camera đáy cần lùi xa hơn nhiều), và cửa sổ là quyết định của orchestrator
@@ -360,10 +368,30 @@ class EvidenceJob(BaseModel):
     grid: tuple[int, int] | None = None
     count: int = Field(default=1, ge=1)
 
+    @property
+    def span(self) -> tuple[float, float]:
+        """``(từ, đến)`` — đưa thẳng vào :meth:`internal.pkg.fragments.FragmentIndex.plan`.
+
+        Raises:
+            ValueError: với job ``image``, vốn không có khoảng. Dùng ``anchor_ts``.
+        """
+        if self.from_ts is None or self.to_ts is None:
+            raise ValueError(f"job {self.kind} không có khoảng video; dùng anchor_ts")
+        return self.from_ts, self.to_ts
+
     @model_validator(mode="after")
-    def _window_ordered(self) -> EvidenceJob:
-        if self.window[1] < self.window[0]:
-            raise ValueError(f"cửa sổ lật ngược: {self.window}")
+    def _span_matches_the_kind(self) -> EvidenceJob:
+        needs_span = self.kind in (EvidenceKind.CLIP, EvidenceKind.MOSAIC)
+        has_span = self.from_ts is not None and self.to_ts is not None
+
+        if needs_span and not has_span:
+            raise ValueError(f"job {self.kind.value} phải có from_ts và to_ts")
+        if not needs_span and (self.from_ts is not None or self.to_ts is not None):
+            # `image` chụp MỘT khoảnh khắc — khoảnh khắc đó là `anchor_ts`. Một khoảng ở
+            # đây nghĩa là ai đó tưởng nó cắt video, và sẽ ngạc nhiên khi nhận một tấm ảnh.
+            raise ValueError(f"job {self.kind.value} không nhận khoảng; nó chụp tại anchor_ts")
+        if has_span and self.to_ts <= self.from_ts:  # type: ignore[operator]
+            raise ValueError(f"khoảng lật ngược hoặc rỗng: [{self.from_ts}, {self.to_ts}]")
         if self.kind is EvidenceKind.MOSAIC and self.grid is None:
             raise ValueError("mosaic phải có grid")
         return self
@@ -383,7 +411,17 @@ class EvidenceJobMessage(_Msg):
     crane_id: str
     lane: Lane
     anchor_ts: Timestamp
-    """Mốc neo — thời điểm rule ``CRANE03`` báo "cẩu đang thao tác"."""
+    """Mốc neo — thời điểm rule ``CRANE03`` báo "cẩu đang thao tác".
+
+    Hai việc, đừng nhầm:
+
+    * **Job ``image`` chụp tại đúng khoảnh khắc này.** Nó không có khoảng, và không cần.
+    * Job ``clip``/``mosaic`` mang khoảng **tuyệt đối** riêng (``from_ts``/``to_ts``); mốc
+      neo ở đây để overlay đánh dấu khoảnh khắc sự kiện bên trong clip, và để ``delay``
+      đo từ nó.
+
+    Quy đổi cửa sổ trong config sang khoảng tuyệt đối là việc của orchestrator — làm một
+    lần ở chỗ nó đọc config, thay vì mỗi consumer tự cộng trừ."""
 
     delay: float = Field(default=0.0, ge=0)
     jobs: list[EvidenceJob] = Field(min_length=1)

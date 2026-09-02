@@ -120,14 +120,20 @@ def samples() -> dict[str, Message]:
             delay=20.0,
             jobs=[
                 EvidenceJob(
+                    kind=EvidenceKind.IMAGE,
+                    camera_code="GC03_113_160_225_15_1508",
+                ),
+                EvidenceJob(
                     kind=EvidenceKind.CLIP,
                     camera_code="GC03_113_160_225_15_1508",
-                    window=(-20.0, 15.0),
+                    from_ts=TS - 20.0,
+                    to_ts=TS + 15.0,
                 ),
                 EvidenceJob(
                     kind=EvidenceKind.MOSAIC,
                     camera_code="GC03_113_160_225_15_1516",
-                    window=(-35.0, 10.0),
+                    from_ts=TS - 35.0,
+                    to_ts=TS + 10.0,
                     grid=(2, 2),
                     count=3,
                 ),

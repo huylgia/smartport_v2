@@ -1343,6 +1343,7 @@ Tính giờ trên clip **đã ghép** (`clip_start + n/fps`) sai hai lần:
 
 Nên đồng hồ phải vẽ **theo từng lát, trước khi ghép**, lấy gốc từ đoạn nguồn của lát đó.
 `FragmentIndex.plan()` trả về đúng danh sách lát ấy, mỗi lát mang `start_unix` riêng.
+Job evidence mang `from_ts`/`to_ts` tuyệt đối, đưa thẳng vào đó.
 
 ### Sổ đoạn ở `internal/pkg/`, không ở `ds_app/`
 
