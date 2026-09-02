@@ -240,13 +240,15 @@ class PerceptionMessage(_Msg):
     frame_ts: Timestamp
     """Thời điểm khung được **chụp**, lấy từ PTS của chính khung đó.
 
-    Bằng ``start_ts + frame_id / fps`` — đo trên GC03 qua 330 message: lệch **0,0 ms**,
-    vì ``nvstreammux`` cấp PTS đều tuyệt đối.
+    **Dùng trường này, đừng tự tính lại từ ``start_ts + frame_id / fps``.**
 
-    **Vẫn dùng trường này, đừng tự tính lại.** Đẳng thức trên đúng khi không khung nào
-    mất; một khung rơi trên đường truyền RTSP không làm ``frame_id`` tăng, nên công thức
-    tính tay sẽ tụt lại sau còn PTS thì không. Trường này là mốc, công thức chỉ là kiểm
-    tra chéo."""
+    Trong một đoạn chạy liền mạch hai cách cho kết quả y hệt — đo trên GC03: lệch
+    **0,0 ms** qua 585 khung, vì ``nvstreammux`` cấp PTS đều tuyệt đối. Nhưng ``frame_id``
+    đếm **số khung nhận được**, không đếm thời gian: lúc camera mất kết nối, đồng hồ chạy
+    còn nó thì đứng. Đo được ngay tại khung đầu sau khi dựng lại nguồn, công thức tụt lại
+    **601,7 ms** và giữ nguyên khoảng đó về sau — đúng bằng thời gian gián đoạn.
+
+    Nghĩa là sai lệch **tích luỹ** theo từng lần rớt mạng. Trường này không bị vậy."""
 
     segment_hint: str | None = None
     """Đường dẫn segment mp4 chứa khung này — ``evidenced`` dùng để biết cắt clip ở đâu.

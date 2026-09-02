@@ -9,7 +9,12 @@ import pytest
 from common.config import CameraConfig, load_crane
 from common.enum import CameraRole
 from ds_app.src.pipeline.elements import DEC_QUEUE, NVURISRCBIN, SOURCE_QUEUE
-from ds_app.src.pipeline.sources import build_sources, make_source_bin, replace_source
+from ds_app.src.pipeline.sources import (
+    build_sources,
+    make_source_bin,
+    replace_source,
+    source_queue_name,
+)
 from tests.conftest import GC03
 
 # Không cần env: định danh luồng nằm trong chính config, nên `load_crane` cho đúng mã
@@ -140,7 +145,7 @@ def test_source_queue_decouples_from_the_shared_muxer(gst: Any) -> None:
 
     build_sources(gst, pipeline, crane, mux)
 
-    q = pipeline.get_by_name("queue_source_0")
+    q = pipeline.get_by_name(source_queue_name(0))
     assert q.props["max-size-buffers"] == SOURCE_QUEUE["max-size-buffers"]
     assert q.props["leaky"] == 2
 
@@ -196,13 +201,13 @@ def test_replace_source_keeps_the_muxer_pad(gst: Any) -> None:
     mux = gst.ElementFactory.make("nvstreammux", "mux")
     build_sources(gst, pipeline, crane, mux)
 
-    queue_before = pipeline.get_by_name("queue_source_0")
+    queue_before = pipeline.get_by_name(source_queue_name(0))
     pad_before = queue_before.get_static_pad("sink")
 
     fresh = replace_source(gst, pipeline, 0, crane.record_cameras[0])
 
     assert fresh is not pipeline.get_by_name("khong-co")
-    assert pipeline.get_by_name("queue_source_0") is queue_before, "queue phải được giữ nguyên"
+    assert pipeline.get_by_name(source_queue_name(0)) is queue_before, "queue phải được giữ nguyên"
     assert queue_before.get_static_pad("sink") is pad_before, "pad của muxer không được trả lại"
 
 
@@ -235,3 +240,20 @@ def test_missing_plugin_names_the_element(gst: Any) -> None:
 
     with pytest.raises(RuntimeError, match="khong-ton-tai"):
         make(gst, "khong-ton-tai", "x")
+
+
+def test_replace_source_refuses_when_the_queue_name_does_not_match(gst: Any) -> None:
+    """⚠️ Hồi quy đo được: ``detect.py`` đặt tên hàng đợi kiểu khác, nên ``replace_source``
+    không tìm thấy gì và **lặng lẽ bỏ bước nối**. Nguồn mới chạy, pipeline không báo lỗi,
+    và camera đó im hẳn — đo được 65 khung trước khi dựng lại, 0 sau đó.
+
+    Nơi gọi là watchdog, nên "không làm gì" là kết quả tệ nhất có thể: nó biến một camera
+    rớt tạm thời thành một camera chết tới lần khởi động lại process.
+    """
+    crane = load_crane(GC03, env=ENV)
+    camera = crane.record_cameras[0]
+    pipeline = gst.Bin.new("p")
+    pipeline.add(make_source_bin(gst, 0, camera))
+
+    with pytest.raises(RuntimeError, match="source_queue_name"):
+        replace_source(gst, pipeline, 0, camera)

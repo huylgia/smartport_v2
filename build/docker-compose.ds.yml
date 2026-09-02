@@ -86,6 +86,7 @@ services:
         --triton ${TRITON:-triton:8001}
         --bus ${BUS:-redpanda:9092}
         ${QUIET:+--quiet}
+        --restart-after ${RESTART_AFTER:-0}
     restart: "no"
 
   # --- kiểm môi trường -------------------------------------------------------

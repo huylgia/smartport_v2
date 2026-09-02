@@ -42,7 +42,12 @@ from ds_app.src.pipeline.inference import (  # noqa: E402
     InferenceClient,
 )
 from ds_app.src.pipeline.model import ModelBranch, roles_with_cameras  # noqa: E402
-from ds_app.src.pipeline.sources import make_source_bin, source_bin_name  # noqa: E402
+from ds_app.src.pipeline.sources import (  # noqa: E402
+    make_source_bin,
+    replace_source,
+    source_bin_name,
+    source_queue_name,
+)
 from ds_app.src.pipeline.timesync import TimeSync  # noqa: E402
 from gateway.contract.bus import BusProducer  # noqa: E402
 
@@ -65,6 +70,12 @@ def _args() -> argparse.Namespace:
     )
     ap.add_argument("--duration", type=float, default=60.0)
     ap.add_argument("--quiet", action="store_true", help="chỉ in tổng kết, không in từng khung")
+    ap.add_argument(
+        "--restart-after",
+        type=float,
+        default=0.0,
+        help="giây; dựng lại nguồn đầu tiên sau ngần này để xem trục thời gian có liền không",
+    )
     return ap.parse_args()
 
 
@@ -177,7 +188,9 @@ def main() -> int:
         for pad_index, cam in enumerate(cams):
             bin_ = make_source_bin(Gst, index, cam)
             pipeline.add(bin_)
-            queue = make(Gst, "queue", f"q_{role.value}_{pad_index}")
+            # Tên do `source_queue_name` quyết định: `replace_source` tìm hàng đợi
+            # theo đúng tên này để nối lại nguồn mới.
+            queue = make(Gst, "queue", source_queue_name(index))
             apply_props(queue, SOURCE_QUEUE)
             pipeline.add(queue)
 
@@ -185,8 +198,9 @@ def main() -> int:
             if sink_pad is None:
                 raise RuntimeError(f"nvstreammux {role.value} không cấp được sink_{pad_index}")
             name = source_bin_name(index)
-            link_pads(Gst, bin_.get_static_pad("src"), queue.get_static_pad("sink"), name, "queue")
-            link_pads(Gst, queue.get_static_pad("src"), sink_pad, "queue", f"mux_{role.value}")
+            qname = source_queue_name(index)
+            link_pads(Gst, bin_.get_static_pad("src"), queue.get_static_pad("sink"), name, qname)
+            link_pads(Gst, queue.get_static_pad("src"), sink_pad, qname, f"mux_{role.value}")
             branch.attach(pad_index, cam)
             index += 1
         branches.append(branch)
@@ -201,6 +215,16 @@ def main() -> int:
 
     loop = GLib.MainLoop()
     GLib.timeout_add_seconds(int(args.duration), lambda: (loop.quit(), False)[1])
+
+    if args.restart_after > 0:
+        first_cams = next(iter(by_role.values()))
+
+        def _restart() -> bool:
+            print(f"\n### dựng lại nguồn {first_cams[0].code} ###\n", flush=True)  # noqa: T201
+            replace_source(Gst, pipeline, 0, first_cams[0])
+            return False
+
+        GLib.timeout_add_seconds(int(args.restart_after), _restart)
     signal.signal(signal.SIGINT, lambda *_: loop.quit())
 
     started = time.time()

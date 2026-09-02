@@ -27,11 +27,22 @@ from ds_app.src.pipeline.elements import (
     make,
 )
 
-__all__ = ["build_sources", "make_source_bin", "replace_source"]
+__all__ = ["build_sources", "make_source_bin", "replace_source", "source_queue_name"]
 
 
 def source_bin_name(index: int) -> str:
     return f"source-bin-{index:02d}"
+
+
+def source_queue_name(index: int) -> str:
+    """Tên hàng đợi giữa nguồn ``index`` và muxer.
+
+    Một hàm chứ không phải một chuỗi f-string lặp lại: :func:`replace_source` **tìm hàng
+    đợi theo tên** để nối lại nguồn mới. Hai chỗ tự đặt tên độc lập thì `replace_source`
+    không tìm thấy gì — và bản đầu của nó lặng lẽ bỏ qua bước nối, nên camera dựng lại
+    xong không bao giờ có khung nào nữa. Đo được: 65 khung trước restart, 0 sau đó.
+    """
+    return f"queue_source_{index:02d}"
 
 
 def build_sources(
@@ -76,15 +87,14 @@ def build_sources(
             raise RuntimeError(f"nvstreammux không cấp được pad sink_{pad_index}")
 
         src_pad = bin_.get_static_pad("src")
-        queue = make(Gst, "queue", f"queue_source_{pad_index}")
+        queue = make(Gst, "queue", source_queue_name(pad_index))
         apply_props(queue, SOURCE_QUEUE)
         pipeline.add(queue)
 
         name = source_bin_name(index)
-        link_pads(Gst, src_pad, queue.get_static_pad("sink"), name, f"queue_source_{pad_index}")
-        link_pads(
-            Gst, queue.get_static_pad("src"), sink_pad, f"queue_source_{pad_index}", "nvstreammux"
-        )
+        qname = source_queue_name(pad_index)
+        link_pads(Gst, src_pad, queue.get_static_pad("sink"), name, qname)
+        link_pads(Gst, queue.get_static_pad("src"), sink_pad, qname, "nvstreammux")
 
         # Một camera rớt mạng KHÔNG được kéo sập muxer dùng chung: chặn EOS tại pad của nó.
         _drop_eos(Gst, sink_pad)
@@ -203,7 +213,7 @@ def replace_source(
 ) -> Any:
     """Thay một source bin đã chết bằng bin mới, các camera khác vẫn chạy.
 
-    ⚠️ **Chỉ cái bin bị thay.** ``queue_source_N`` giữ nguyên request pad của nó ở
+    ⚠️ **Chỉ cái bin bị thay.** Hàng đợi giữ nguyên request pad của nó ở
     ``nvstreammux``, nên muxer không phải thương lượng lại. Trả request pad của streammux
     lúc đang chạy là thao tác đã biết là làm treo pipeline, và thiết kế này không có lý do
     nào phải làm vậy.
@@ -213,11 +223,20 @@ def replace_source(
     if old is None:
         raise RuntimeError(f"{name}: không có gì để thay")
 
-    queue = pipeline.get_by_name(f"queue_source_{index}")
-    queue_sink = queue.get_static_pad("sink") if queue is not None else None
+    qname = source_queue_name(index)
+    queue = pipeline.get_by_name(qname)
+    if queue is None:
+        # ⚠️ Ném, KHÔNG bỏ qua. Bản đầu để `queue_sink = None` rồi lặng lẽ không nối —
+        # nguồn mới chạy, pipeline không báo gì, và camera đó im cho tới lần khởi động lại
+        # process. Nơi gọi là watchdog, nên "không làm gì" là kết quả tệ nhất có thể.
+        raise RuntimeError(
+            f"{qname}: không tìm thấy hàng đợi của nguồn {index}. Nơi dựng pipeline phải "
+            f"đặt tên bằng source_queue_name(), nếu không replace_source() không nối lại được."
+        )
+    queue_sink = queue.get_static_pad("sink")
 
     old_src = old.get_static_pad("src")
-    if queue_sink is not None and old_src is not None and old_src.get_peer() is queue_sink:
+    if old_src is not None and old_src.get_peer() is queue_sink:
         old_src.unlink(queue_sink)
     old.set_state(Gst.State.NULL)
     old.get_state(5 * Gst.SECOND)
@@ -227,8 +246,7 @@ def replace_source(
     pipeline.add(fresh)
     if recorder is not None:
         recorder.attach(Gst, fresh, camera.code)
-    if queue_sink is not None:
-        link_pads(Gst, fresh.get_static_pad("src"), queue_sink, name, f"queue_source_{index}")
+    link_pads(Gst, fresh.get_static_pad("src"), queue_sink, name, qname)
     if watchdog is not None:
         watchdog.watch(index, camera, fresh.get_static_pad("src"))
 

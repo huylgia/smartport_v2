@@ -375,6 +375,7 @@ thực tế (Spike C) trên máy staging trước khi nâng driver ở productio
 | 2026-09-02 | dev | Thứ tự kênh khung DeepStream | RGBA ⇒ phải đảo; sai kênh điểm tụt **0,932 → 0,507** | §6.2 |
 | 2026-09-02 | dev | Tiền xử lý crop cho classifier số xe | BGR **100 %** / RGB 87,4 % · nội suy không đổi gì · hình học crop khớp | §6.2 |
 | 2026-09-02 | dev | ds_app -> Kafka, 3 camera | **330 gửi / 330 ack, 0 mất** · trục thời gian lệch **0,0 ms** | §6.1 |
+| 2026-09-02 | dev | `replace_source` và trục thời gian | `frame_id` **không reset** · công thức tụt **601,7 ms** = thời gian gián đoạn | §6.1 |
 | ☐ | đích | Chạy lại toàn bộ §6.1 trên RTX 3060 | 5090 nhanh hơn 3060 khoảng 2–3× | Spike B |
 
 ---
@@ -571,6 +572,34 @@ Hai chỗ mất message im lặng đã bịt, cả hai đều chỉ lộ ra khi 
 Lấy nhầm mốc làm `start_ts + frame_id/fps` lệch `frame_ts` một khoảng cố định bằng PTS của
 khung đầu (đo được **0,475 s**) — nhịp vẫn đúng nên không có gì báo, chỉ là mọi cửa sổ thời
 gian trượt đi nửa giây.
+
+#### Trục thời gian sống được bao lâu (2026-09-02, máy dev)
+
+Hai đại lượng, hai vòng đời khác nhau — và chỗ chúng lệch nhau là chỗ dễ tin nhầm:
+
+| | Đặt khi nào | Sống tới khi nào |
+|---|---|---|
+| `start_ts` | **một lần cho mỗi camera**, ở khung đầu tiên có PTS hợp lệ (`TimeSync`, ghi-lần-đầu-thắng) | process kết thúc |
+| `frame_id` | mỗi khung, `frame_num x drop_frame_interval` | process kết thúc — **sống sót qua `replace_source`** |
+
+`replace_source` giữ nguyên request pad ở `nvstreammux`, và bộ đếm khung nằm trên chính
+pad đó, nên dựng lại nguồn **không** làm `frame_id` reset: đo được 585 → 594, đúng bước 9.
+
+⚠️ **Nhưng `frame_id` đếm khung, không đếm thời gian.** Lúc camera mất kết nối, đồng hồ
+chạy còn nó đứng. Đo tại khung đầu sau khi dựng lại nguồn:
+
+```
+frame_id    lệch (frame_ts - start_ts) - frame_id/fps
+       0        0,0 ms
+     594      601,7 ms   ← nhảy đúng tại đây, rồi giữ nguyên
+```
+
+601,7 ms là đúng thời gian gián đoạn. Sai lệch **tích luỹ** qua từng lần rớt mạng, nên
+`start_ts + frame_id/fps` không dùng thay `frame_ts` được trong một tiến trình chạy dài.
+
+Chưa đo: `nvurisrcbin` tự nối lại RTSP (`rtsp-reconnect-interval`) có giữ PTS liền mạch
+như `replace_source` không. Nếu PTS reset về 0 mà neo cũ vẫn giữ, `frame_ts` sẽ nhảy
+**lùi** — cần đo trước khi chạy dài ngoài thực địa.
 
 ### 6.2 Độ chính xác — đo 2026-08-30
 
