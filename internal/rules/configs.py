@@ -146,7 +146,15 @@ class TCode01Config(_LaneZones):
     """Cao hơn ``head_thresh`` vì tập lớp đóng — đoán bừa thì rẻ, đoán sai thì đắt."""
 
     min_streak: int = Field(default=3, ge=1)
-    """Số khung liên tiếp cùng một số xe mới phát signal."""
+    """Số khung liên tiếp cùng một số xe mới phát signal.
+
+    ⚠️ **"Liên tiếp" phải đo bằng THỜI GIAN, không bằng ``frame_id`` liền kề.** ``frame_id``
+    chỉ đếm khung nhận được: lúc camera mất mạng nó đứng yên, nên khung N và N+bước là
+    liền kề theo chỉ số mà cách nhau cả đợt gián đoạn — đo được **30 s** cho một lần rớt
+    mạng, so với 1,5 s của ba khung bình thường ở 2 fps. Một chuỗi bắc qua đó sẽ ghép lần
+    đọc của xe cũ với lần đọc của xe mới, và phát ra một signal chưa từng đúng ở khoảnh
+    khắc nào. Nơi đếm chuỗi phải kiểm cả khoảng cách ``frame_ts``. Xem
+    ``docs/HARDWARE_BUDGET.md`` §6.1."""
 
 
 class Crane02Config(_RuleConfig):
@@ -198,7 +206,17 @@ class CCode01Config(_RuleConfig):
     box_threshold: Confidence = 0.2
     character_threshold: Confidence = 0.3
     iso_threshold: Confidence = 0.95
+
     min_streak: int = Field(default=3, ge=1)
+    """Số khung liên tiếp cùng một mã container mới phát signal.
+
+    ⚠️ **"Liên tiếp" phải đo bằng THỜI GIAN, không bằng ``frame_id`` liền kề.** ``frame_id``
+    chỉ đếm khung nhận được: lúc camera mất mạng nó đứng yên, nên khung N và N+bước là
+    liền kề theo chỉ số mà cách nhau cả đợt gián đoạn — đo được **30 s** cho một lần rớt
+    mạng, so với 1,5 s của ba khung bình thường ở 2 fps. Một chuỗi bắc qua đó sẽ ghép lần
+    đọc của xe cũ với lần đọc của xe mới, và phát ra một signal chưa từng đúng ở khoảnh
+    khắc nào. Nơi đếm chuỗi phải kiểm cả khoảng cách ``frame_ts``. Xem
+    ``docs/HARDWARE_BUDGET.md`` §6.1."""
 
 
 class RuleSpec(BaseModel):
